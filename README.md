@@ -20,7 +20,7 @@ Single binary, zero runtime dependencies.
 
 **Utility:**
 - `--scramble` — random substitution
-- `--group5` / `--ungroup` — grouping in blocks of 5
+- `--group [N]` / `--group5` / `--ungroup` — grouping in blocks of N (default 5) / ungrouping
 - `--upper` / `--lower` — case conversion
 
 ## Install
