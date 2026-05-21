@@ -353,7 +353,10 @@ impl<'a> VigenereSolver<'a> {
             .chars()
             .map(|c| {
                 if c.is_ascii_alphabetic() {
-                    debug_assert!(pi < plain.len(), "reconstruct: pi overflowed plaintext length");
+                    debug_assert!(
+                        pi < plain.len(),
+                        "reconstruct: pi overflowed plaintext length"
+                    );
                     let p = plain.as_bytes()[pi];
                     pi += 1;
                     if c.is_uppercase() {

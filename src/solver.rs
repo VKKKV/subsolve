@@ -136,8 +136,7 @@ impl<'a> Solver<'a> {
             if locked[idx] {
                 eprintln!(
                     "warning: clue '{}' overwrites previous mapping for '{}'",
-                    clue,
-                    ci as char
+                    clue, ci as char
                 );
             }
             key[idx] = pi;
