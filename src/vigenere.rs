@@ -5,10 +5,9 @@
 /// 2. Per-column chi-squared vs English frequencies → initial key
 /// 3. Quadgram scoring → pick best key length/shift combo
 /// 4. Hill climbing refinement on individual key positions
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use crate::ngram::NgramModel;
+use crate::ngram::{cmp_f64, NgramModel};
 
 const AZ: &[u8; 26] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const MAX_REFINE_ITERATIONS: usize = 3;
@@ -33,10 +32,6 @@ pub struct VigenereSolution {
     pub key_len: usize,
     pub shifts: Vec<u8>,
     pub score: f64,
-}
-
-fn cmp_f64(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Less)
 }
 
 impl<'a> VigenereSolver<'a> {
@@ -77,29 +72,18 @@ impl<'a> VigenereSolver<'a> {
                 continue;
             }
             let shifts = self.initial_shifts(kl);
-            let key = shifts.iter().map(|&s| AZ[s as usize] as char).collect();
+            let key: String = shifts.iter().map(|&s| AZ[s as usize] as char).collect();
             let plain = self.decrypt(&shifts);
             let score = self.quadgrams.score(&plain);
 
-            // Collect candidates; print sorted table in verbose mode
-            if !verbose {
-                solutions.push(VigenereSolution {
-                    plaintext: self.reconstruct(&plain),
-                    key,
-                    key_len: kl,
-                    shifts,
-                    score,
-                });
-            } else {
-                // Collect for later sorted display
-                solutions.push(VigenereSolution {
-                    plaintext: self.reconstruct(&plain),
-                    key: key.clone(),
-                    key_len: kl,
-                    shifts,
-                    score,
-                });
-            }
+            // Collect candidates; print sorted table in verbose mode.
+            solutions.push(VigenereSolution {
+                plaintext: self.reconstruct(&plain),
+                key: if verbose { key.clone() } else { key },
+                key_len: kl,
+                shifts,
+                score,
+            });
         }
 
         for sol in &mut solutions {

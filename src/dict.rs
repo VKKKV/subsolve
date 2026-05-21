@@ -121,7 +121,7 @@ impl Dictionary {
                         } else if candidate.len() == 1 {
                             -20.0
                         } else {
-                            -999.0
+                            unreachable!("segmentation tried non-dict multi-letter word");
                         };
                         let new_score = entry_score + word_cost;
                         let new_entry = Entry {
@@ -218,21 +218,33 @@ impl Dictionary {
             return 0.0;
         }
 
-        // Check all trigrams - what fraction start valid dictionary words?
+        const SAMPLE_LIMIT: usize = 5000;
+
+        // Check what fraction of sampled n-grams are dictionary words.
         let mut total = 0;
         let mut valid = 0;
         let max_len = self.max_word_len.min(bytes.len());
+        let total_possible: usize = (0..bytes.len())
+            .map(|i| (i + max_len).min(bytes.len()).saturating_sub(i + 1))
+            .sum();
+        let step = if total_possible <= SAMPLE_LIMIT {
+            1
+        } else {
+            total_possible / SAMPLE_LIMIT
+        };
 
-        for i in 0..bytes.len() {
+        for i in (0..bytes.len()).step_by(step.max(1)) {
             for j in (i + 2)..=(i + max_len).min(bytes.len()) {
                 total += 1;
                 let candidate = &text[i..j];
                 if self.contains(candidate) {
                     valid += 1;
                 }
+                if total >= SAMPLE_LIMIT {
+                    break;
+                }
             }
-            // Limit to avoid O(n^2) blowup
-            if total > 5000 {
+            if total >= SAMPLE_LIMIT {
                 break;
             }
         }

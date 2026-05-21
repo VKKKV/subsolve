@@ -5,16 +5,11 @@
 /// swaps pairs of letters, keeping changes that improve the score.
 use rand::seq::SliceRandom;
 use rand::Rng;
-use std::cmp::Ordering;
 
 use crate::dict::Dictionary;
-use crate::ngram::NgramModel;
+use crate::ngram::{cmp_f64, NgramModel};
 
 const ALPHABET: [u8; 26] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-fn cmp_f64(a: f64, b: f64) -> Ordering {
-    a.partial_cmp(&b).unwrap_or(Ordering::Less)
-}
 
 /// A solved result
 #[derive(Clone)]
@@ -206,12 +201,10 @@ impl<'a> Solver<'a> {
                 }
             }
 
+            let dec_clean = String::from_utf8(self.decrypt(&key)).unwrap();
             let plaintext = self.decrypt_preserve(&key);
-            let dec_clean: String = plaintext
-                .chars()
-                .filter(|c| c.is_ascii_alphabetic())
-                .collect();
             let final_quad = self.scorer.score(&dec_clean);
+            let final_score = self.combined_score(&dec_clean, final_quad);
             let dict_s = self
                 .dict
                 .map(|d: &Dictionary| d.score_text(&dec_clean))
@@ -220,14 +213,14 @@ impl<'a> Solver<'a> {
             all_solutions.push(Solution {
                 plaintext,
                 mapping: key,
-                score: current_score,
+                score: final_score,
                 quad_score: final_quad,
                 dict_score: dict_s,
             });
 
-            // Keep only top N
+            // Keep sorted so verbose progress reports the current best.
+            all_solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
             if all_solutions.len() > top_n * 3 {
-                all_solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
                 all_solutions.truncate(top_n * 3);
             }
 
