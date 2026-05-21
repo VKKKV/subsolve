@@ -5,11 +5,13 @@
 /// 2. Per-column chi-squared vs English frequencies → initial key
 /// 3. Quadgram scoring → pick best key length/shift combo
 /// 4. Hill climbing refinement on individual key positions
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::ngram::NgramModel;
 
 const AZ: &[u8; 26] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const MAX_REFINE_ITERATIONS: usize = 3;
 
 /// English letter frequencies (A-Z)
 const EN_FREQ: [f64; 26] = [
@@ -29,9 +31,12 @@ pub struct VigenereSolution {
     pub plaintext: String,
     pub key: String,
     pub key_len: usize,
-    #[allow(dead_code)]
     pub shifts: Vec<u8>,
     pub score: f64,
+}
+
+fn cmp_f64(a: f64, b: f64) -> Ordering {
+    a.partial_cmp(&b).unwrap_or(Ordering::Less)
 }
 
 impl<'a> VigenereSolver<'a> {
@@ -96,12 +101,54 @@ impl<'a> VigenereSolver<'a> {
             }
         }
 
-        // No refinement for now — the chi-squared initial shifts are usually
-        // correct for well-formed Vigenere ciphers.
+        for sol in &mut solutions {
+            self.refine_solution(sol);
+        }
 
-        solutions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
         solutions.truncate(5);
         solutions
+    }
+
+    /// Refine a candidate by hill-climbing each key position independently.
+    fn refine_solution(&self, sol: &mut VigenereSolution) {
+        for _ in 0..MAX_REFINE_ITERATIONS {
+            let mut improved = false;
+
+            for pos in 0..sol.key_len {
+                let mut best_shift = sol.shifts[pos];
+                let mut best_score = sol.score;
+
+                for candidate_shift in 0..26u8 {
+                    if candidate_shift == best_shift {
+                        continue;
+                    }
+
+                    let mut test_shifts = sol.shifts.clone();
+                    test_shifts[pos] = candidate_shift;
+                    let plain = self.decrypt(&test_shifts);
+                    let score = self.quadgrams.score(&plain);
+
+                    if score > best_score {
+                        best_score = score;
+                        best_shift = candidate_shift;
+                        improved = true;
+                    }
+                }
+
+                if best_shift != sol.shifts[pos] {
+                    sol.shifts[pos] = best_shift;
+                    let plain = self.decrypt(&sol.shifts);
+                    sol.plaintext = self.reconstruct(&plain);
+                    sol.key = sol.shifts.iter().map(|&s| AZ[s as usize] as char).collect();
+                    sol.score = self.quadgrams.score(&plain);
+                }
+            }
+
+            if !improved {
+                break;
+            }
+        }
     }
 
     /// Find best key lengths via IC + Kasiski
@@ -118,7 +165,7 @@ impl<'a> VigenereSolver<'a> {
                 (kl, (ic - 0.0667).abs()) // lower = better
             })
             .collect();
-        ic_scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        ic_scores.sort_by(|a, b| cmp_f64(a.1, b.1));
 
         // Method 2: Kasiski examination (for longer texts)
         let mut kasiski_scores: HashMap<usize, usize> = HashMap::new();
@@ -143,7 +190,7 @@ impl<'a> VigenereSolver<'a> {
                 (kl, ic_dist - kas * 0.01)
             })
             .collect();
-        merged.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        merged.sort_by(|a, b| cmp_f64(a.1, b.1));
 
         // Always try key length 1 (Caesar/substitution) at the end
         let mut result: Vec<usize> = merged.iter().map(|&(kl, _)| kl).collect();
@@ -337,8 +384,8 @@ pub fn scramble(text: &str) -> String {
         .collect()
 }
 
-/// Group text in blocks of 5
-pub fn group5(text: &str) -> String {
+/// Group text in blocks of N
+pub fn groupn(text: &str, n: usize) -> String {
     let letters: String = text
         .chars()
         .filter(|c| c.is_ascii_alphabetic())
@@ -347,7 +394,7 @@ pub fn group5(text: &str) -> String {
 
     letters
         .as_bytes()
-        .chunks(5)
+        .chunks(n)
         .map(|chunk| std::str::from_utf8(chunk).unwrap())
         .collect::<Vec<&str>>()
         .join(" ")
@@ -432,9 +479,10 @@ mod tests {
     }
 
     #[test]
-    fn test_group5() {
-        assert_eq!(group5("THISISATEST"), "THISI SATES T");
-        assert_eq!(group5("HelloWorld"), "HELLO WORLD");
+    fn test_groupn() {
+        assert_eq!(groupn("THISISATEST", 5), "THISI SATES T");
+        assert_eq!(groupn("HelloWorld", 5), "HELLO WORLD");
+        assert_eq!(groupn("HELLOWORLD", 2), "HE LL OW OR LD");
     }
 
     #[test]

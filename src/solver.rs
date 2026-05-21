@@ -5,11 +5,16 @@
 /// swaps pairs of letters, keeping changes that improve the score.
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::cmp::Ordering;
 
 use crate::dict::Dictionary;
 use crate::ngram::NgramModel;
 
 const ALPHABET: [u8; 26] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+fn cmp_f64(a: f64, b: f64) -> Ordering {
+    a.partial_cmp(&b).unwrap_or(Ordering::Less)
+}
 
 /// A solved result
 #[derive(Clone)]
@@ -220,7 +225,7 @@ impl<'a> Solver<'a> {
 
             // Keep only top N
             if all_solutions.len() > top_n * 3 {
-                all_solutions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+                all_solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
                 all_solutions.truncate(top_n * 3);
             }
 
@@ -242,7 +247,7 @@ impl<'a> Solver<'a> {
         }
 
         // Sort and return top N
-        all_solutions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        all_solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
         all_solutions.truncate(top_n);
         all_solutions
     }
