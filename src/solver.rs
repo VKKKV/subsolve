@@ -22,6 +22,7 @@ pub struct Solution {
     pub plaintext: String,
     pub mapping: [u8; 26],
     pub score: f64,
+    pub quad_score: f64,
     pub dict_score: f64,
 }
 
@@ -210,7 +211,7 @@ impl<'a> Solver<'a> {
                 .chars()
                 .filter(|c| c.is_ascii_alphabetic())
                 .collect();
-            let _final_quad = self.scorer.score(&dec_clean);
+            let final_quad = self.scorer.score(&dec_clean);
             let dict_s = self
                 .dict
                 .map(|d: &Dictionary| d.score_text(&dec_clean))
@@ -220,6 +221,7 @@ impl<'a> Solver<'a> {
                 plaintext,
                 mapping: key,
                 score: current_score,
+                quad_score: final_quad,
                 dict_score: dict_s,
             });
 
