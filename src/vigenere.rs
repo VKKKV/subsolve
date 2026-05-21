@@ -167,6 +167,7 @@ impl<'a> VigenereSolver<'a> {
                 (kl, (ic - 0.0667).abs()) // lower = better
             })
             .collect();
+        ic_scores.retain(|(_, ic)| ic.is_finite());
         ic_scores.sort_by(|a, b| cmp_f64(a.1, b.1));
 
         // Method 2: Kasiski examination (for longer texts)
@@ -337,6 +338,7 @@ impl<'a> VigenereSolver<'a> {
             .chars()
             .map(|c| {
                 if c.is_ascii_alphabetic() {
+                    debug_assert!(pi < plain.len(), "reconstruct: pi overflowed plaintext length");
                     let p = plain.as_bytes()[pi];
                     pi += 1;
                     if c.is_uppercase() {
@@ -460,6 +462,28 @@ mod tests {
         let sols = solver.solve(10, Some(3), false);
         assert!(!sols.is_empty());
         assert_eq!(sols[0].key_len, 3);
+    }
+
+    #[test]
+    fn test_vigenere_auto_detect_key_len() {
+        // Longer text so Kasiski has enough repeats to detect key length.
+        let text = "HELLOWORLDTHISISAVIGENERECIPHERTESTWITHLONGERTEXTTOENABLEKASISKI";
+        let key = [3, 8, 14]; // D, I, O -> shifts 3,8,14 = key_len 3
+        let cipher: String = text
+            .bytes()
+            .enumerate()
+            .map(|(i, c)| {
+                let s = key[i % key.len()];
+                (((c - b'A') + s) % 26 + b'A') as char
+            })
+            .collect();
+
+        let model = full_model();
+        let solver = VigenereSolver::new(&cipher, &model);
+        let sols = solver.solve(10, None, false);
+        assert!(!sols.is_empty());
+        assert_eq!(sols[0].key_len, 3);
+        assert_eq!(sols[0].key, "DIO");
     }
 
     #[test]
