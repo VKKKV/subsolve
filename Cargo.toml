@@ -2,10 +2,16 @@
 name = "subsolve"
 version = "0.1.0"
 edition = "2021"
-description = "Offline substitution cipher solver using quadgram statistics and hill climbing"
+rust-version = "1.75"
+description = "Offline substitution cipher solver using quadgram statistics, hill climbing, and Vigenere analysis"
 authors = ["subsolve contributors"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 rand = "0.8"
-atty = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

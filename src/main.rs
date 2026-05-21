@@ -4,6 +4,7 @@ mod solver;
 mod vigenere;
 
 use clap::Parser;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 /// subsolve — offline cryptogram solver
@@ -87,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::read_to_string(path)?
     } else if let Some(text) = &cli.ciphertext {
         text.clone()
-    } else if !atty::is(atty::Stream::Stdin) {
+    } else if !std::io::stdin().is_terminal() {
         let mut buf = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
         buf
@@ -124,9 +125,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // === Frequency analysis ===
+    // === Frequency analysis (exit early, not a solve mode) ===
     if cli.analyze {
         print_analysis(input);
+        return Ok(());
     }
 
     // Load quadgram model
@@ -165,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let word_list_data;
     let dict = if let Some(path) = &cli.dict {
         if path.exists() {
-            word_list_data = dict::Dictionary::from_file(path.to_str().unwrap())?;
+            word_list_data = dict::Dictionary::from_file(&path.to_string_lossy())?;
             Some(&word_list_data)
         } else {
             eprintln!("warning: dictionary file not found: {}", path.display());
@@ -249,12 +251,10 @@ fn print_analysis(ciphertext: &str) {
         .collect();
     sorted.sort_by(|a, b| b.0.cmp(&a.0));
 
-    println!("=== Frequency Analysis ===");
-    println!("Total letters: {}", total as usize);
-    println!();
-    println!("Cipher letter frequencies:");
-    println!("{:8}  {:6}  {:6}  {}", "Letter", "Count", "Freq%", "English rank");
-    println!("{}", "-".repeat(45));
+    println!("=== Frequency Analysis ===\nTotal letters: {}\n\nCipher letter frequencies:", total as usize);
+    println!("Letter     Count    Freq%   English rank");
+    let dashes = "-".repeat(42);
+    println!("{dashes}");
     for (count, ch) in &sorted {
         if *count == 0 {
             continue;
@@ -301,10 +301,16 @@ mod tests {
         let random = "QWERTYUIOPASDFGHJKLZXCVBNMQWERTYUIOPASDF";
         let english = "THISISASAMPLESENTENCETHATSHOULDHAVEHIGHERIC";
         let ic_rand = index_of_coincidence(
-            &random.chars().map(|c| c.to_ascii_uppercase()).collect::<Vec<_>>(),
+            &random
+                .chars()
+                .map(|c| c.to_ascii_uppercase())
+                .collect::<Vec<_>>(),
         );
         let ic_eng = index_of_coincidence(
-            &english.chars().map(|c| c.to_ascii_uppercase()).collect::<Vec<_>>(),
+            &english
+                .chars()
+                .map(|c| c.to_ascii_uppercase())
+                .collect::<Vec<_>>(),
         );
         assert!(ic_eng > ic_rand);
     }
