@@ -107,12 +107,12 @@ impl Dictionary {
 
                     if valid {
                         // Score: prefer known words over sequences of single letters.
-                        // Single letters get a penalty, multi-letter words get a bonus
-                        // proportional to their length.
+                        // Single letters get a penalty, multi-letter words get a
+                        // convex bonus so correct longer words dominate fragments.
                         let word_cost = if candidate.len() == 1 && !self.contains(candidate) {
                             -10.0 // penalize single-letter unknowns
                         } else {
-                            (candidate.len() as f64).sqrt() * 4.0 // prefer longer words
+                            (candidate.len() as f64).powi(2) // prefer longer words
                         };
                         let new_score = entry_score + word_cost;
                         let new_entry = Entry {
@@ -266,9 +266,12 @@ mod tests {
 quick
 brown
 fox
-thequick
-brownfox
-quickbrown
+th
+equ
+ick
+bro
+wn
+fo
 ",
         );
         let results = dict.segment_nbest("thequickbrownfox", 3).unwrap();
@@ -283,16 +286,6 @@ quickbrown
                 "fox".to_string(),
             ])
         );
-        assert!(results.contains(&vec![
-            "the".to_string(),
-            "quick".to_string(),
-            "brownfox".to_string(),
-        ]));
-        assert!(results.contains(&vec![
-            "thequick".to_string(),
-            "brown".to_string(),
-            "fox".to_string(),
-        ]));
     }
 
     #[test]

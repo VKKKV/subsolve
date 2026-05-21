@@ -195,7 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .chars()
                     .filter(|c| c.is_ascii_alphabetic())
                     .collect();
-                dict.segment_nbest(&clean, 100).map(|segmentations| {
+                dict.segment_nbest(&clean, 5).map(|segmentations| {
                     let mut scored: Vec<(f64, Vec<String>)> = segmentations
                         .into_iter()
                         .map(|words| {
