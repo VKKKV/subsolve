@@ -116,6 +116,7 @@ Separators: `=`, `->`, `:`. Multiple clues: comma or semicolon.
 ### Projects & tools
 
 - **[quipqiup](https://quipqiup.com/)** (Edwin Olson) — fast web-based cryptogram solver. The core UX inspiration: show multiple candidates with scores, default-lowercase output.
+- **[wordninja](https://github.com/keredson/wordninja)** (keredson, MIT) — probabilistic word splitting using Wikipedia unigram frequencies and Zipf's law. The reference implementation for our Viterbi segmentation cost function.
 - **[Practical Cryptography](http://practicalcryptography.com/)** (James Lyons) — comprehensive resource on classical cipher cryptanalysis. The quadgram model, Kasiski examination, χ² test, and hill-climbing algorithm are all adapted from this site.
 - **[dcode.fr](https://www.dcode.fr/)** — online cipher toolkit. Reference for Vigenere IC-based key length detection.
 - **[CrypTool](https://www.cryptool.org/)** — classical cryptography education software.
@@ -123,7 +124,7 @@ Separators: `=`, `->`, `:`. Multiple clues: comma or semicolon.
 ### Data sources
 
 - **english_quadgrams.txt** (389K entries, 3.2 MB) — English quadgram log-probabilities from practicalcryptography.com. Embedded at compile time.
-- **words.txt** (370K words, 4.1 MB) — English word list from the [SCOWL](http://wordlist.aspell.net/) (Spell Checker Oriented Word Lists) project, size 70 variant. Used for Viterbi word segmentation. Embedded at compile time.
+- **words.txt** (126K words, frequency-ordered) — from [wordninja](https://github.com/keredson/wordninja) (MIT), based on English Wikipedia unigram frequencies. Each word's position in the list determines its cost via Zipf's law: `cost = ln((rank+1) * ln(N))`. Used for Viterbi word segmentation and embedded at compile time.
 
 ### Classical references
 
