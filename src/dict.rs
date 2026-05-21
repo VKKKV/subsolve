@@ -1,13 +1,13 @@
 /// Dictionary with word lookup and Viterbi segmentation.
 ///
 /// Supports:
-/// - Fast word lookup via HashSet
+/// - Fast word lookup via HashMap
 /// - Word boundary insertion (Viterbi DP) for patristocrat mode
 /// - Word frequency scoring for dictionary mode
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 pub struct Dictionary {
-    words: HashSet<String>,
+    words: HashMap<String, f64>,
     max_word_len: usize,
 }
 
@@ -20,7 +20,7 @@ impl Dictionary {
 
     /// Load from a string (embedded or otherwise)
     pub fn from_str(data: &str) -> Self {
-        let mut words = HashSet::new();
+        let mut word_list = Vec::new();
         let mut max_word_len = 0;
 
         for line in data.lines() {
@@ -30,14 +30,23 @@ impl Dictionary {
             if word.is_empty() {
                 continue;
             }
-            // Only keep alphabetic words of reasonable length
-            if word.chars().all(|c| c.is_ascii_alphabetic()) && word.len() >= 2 {
+            // Keep the frequency-ordered source intact; one-letter words still
+            // get real costs when present, with fallback covering unknowns.
+            if word.chars().all(|c| c.is_ascii_alphabetic()) {
                 let len = word.len();
                 if len > max_word_len {
                     max_word_len = len;
                 }
-                words.insert(word);
+                word_list.push(word);
             }
+        }
+
+        let total = word_list.len() as f64;
+        let log_total = total.ln();
+        let mut words = HashMap::new();
+        for (i, word) in word_list.into_iter().enumerate() {
+            let cost = ((i + 1) as f64 * log_total).ln();
+            words.entry(word).or_insert(cost);
         }
 
         Self {
@@ -48,7 +57,7 @@ impl Dictionary {
 
     /// Check if a word is in the dictionary
     pub fn contains(&self, word: &str) -> bool {
-        self.words.contains(word)
+        self.words.contains_key(word)
     }
 
     /// Viterbi segmentation: insert spaces into a string of letters
@@ -106,13 +115,13 @@ impl Dictionary {
                     }
 
                     if valid {
-                        // Score: prefer known words over sequences of single letters.
-                        // Single letters get a penalty, multi-letter words get a
-                        // convex bonus so correct longer words dominate fragments.
-                        let word_cost = if candidate.len() == 1 && !self.contains(candidate) {
-                            -10.0 // penalize single-letter unknowns
+                        // Lower Zipf cost means a more common word, so negate for max-DP.
+                        let word_cost = if let Some(cost) = self.words.get(candidate) {
+                            -cost
+                        } else if candidate.len() == 1 {
+                            -20.0
                         } else {
-                            (candidate.len() as f64).powi(2) // prefer longer words
+                            -999.0
                         };
                         let new_score = entry_score + word_cost;
                         let new_entry = Entry {
@@ -286,6 +295,21 @@ fo
                 "fox".to_string(),
             ])
         );
+    }
+
+    #[test]
+    fn test_segmentation_prefers_frequency_over_length() {
+        let dict = Dictionary::from_str(
+            "a
+with
+cat
+wit
+ha
+",
+        );
+
+        let result = dict.segment("witha").unwrap();
+        assert_eq!(result, vec!["with", "a"]);
     }
 
     #[test]

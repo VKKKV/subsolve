@@ -116,6 +116,7 @@ subsolve --clues "E=T,G=R" "WKH TXLFN EURZQ IRA"
 ### 项目 & 工具
 
 - **[quipqiup](https://quipqiup.com/)** (Edwin Olson) — 高速在线密码破解器。核心 UX 灵感来源：多候选带分数展示、默认小写输出。
+- **[wordninja](https://github.com/keredson/wordninja)** (keredson, MIT) — 基于 Wikipedia unigram 频率和 Zipf 定律的概率分词工具。本项目 Viterbi 分词代价函数的参考实现。
 - **[Practical Cryptography](http://practicalcryptography.com/)** (James Lyons) — 经典密码分析的综合资源。quadgram 模型、Kasiski 检测、χ² 检验、爬山算法均参考此站。
 - **[dcode.fr](https://www.dcode.fr/)** — 在线密码工具箱。Vigenere IC 密钥长度检测的参考实现。
 - **[CrypTool](https://www.cryptool.org/)** — 古典密码学教育软件。
@@ -123,7 +124,7 @@ subsolve --clues "E=T,G=R" "WKH TXLFN EURZQ IRA"
 ### 数据来源
 
 - **english_quadgrams.txt** (389K 条, 3.2 MB) — 英语四字母组对数概率，来自 practicalcryptography.com。编译时内嵌。
-- **words.txt** (37 万词, 4.1 MB) — 英语词表，来自 [SCOWL](http://wordlist.aspell.net/) (Spell Checker Oriented Word Lists) 项目，size 70 变体。用于 Viterbi 分词。编译时内嵌。
+- **words.txt** (12.6 万词，按频率排序) — 来自 [wordninja](https://github.com/keredson/wordninja) (MIT)，基于 English Wikipedia unigram 频率。词在列表中的位置决定 Zipf-law 代价：`cost = ln((rank+1) * ln(N))`。用于 Viterbi 分词，编译时内嵌。
 
 ### 经典文献
 
