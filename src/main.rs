@@ -189,13 +189,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let top_n = if cli.top > 0 { cli.top } else { 1 };
         for (i, sol) in solutions.iter().enumerate().take(top_n) {
-            let segmentations = if let Some(dict) = segment_dict.as_ref() {
+            let segmentations: Option<Vec<Vec<String>>> = if let Some(dict) = segment_dict.as_ref() {
                 let clean: String = sol
                     .plaintext
                     .chars()
                     .filter(|c| c.is_ascii_alphabetic())
                     .collect();
-                dict.segment_nbest(&clean, 3)
+                dict.segment_nbest(&clean, 10).map(|segmentations| {
+                    let mut scored: Vec<(f64, Vec<String>)> = segmentations
+                        .into_iter()
+                        .map(|words| {
+                            let with_spaces = words.join(" ");
+                            (scorer.score(&with_spaces), words)
+                        })
+                        .collect();
+                    scored.sort_by(|a, b| {
+                        b.0.partial_cmp(&a.0)
+                            .unwrap_or(std::cmp::Ordering::Less)
+                    });
+                    scored
+                        .into_iter()
+                        .take(3)
+                        .map(|(_, words)| words)
+                        .collect::<Vec<Vec<String>>>()
+                })
             } else {
                 None
             };

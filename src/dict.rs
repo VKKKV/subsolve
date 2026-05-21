@@ -106,13 +106,13 @@ impl Dictionary {
                     }
 
                     if valid {
-                        // Cost: prefer known words over sequences of single letters.
+                        // Score: prefer known words over sequences of single letters.
                         // Single letters get a penalty, multi-letter words get a bonus
                         // proportional to their length.
                         let word_cost = if candidate.len() == 1 && !self.contains(candidate) {
-                            10.0 // penalize single-letter unknowns
+                            -10.0 // penalize single-letter unknowns
                         } else {
-                            -(candidate.len() as f64).sqrt() * 4.0 // prefer longer words
+                            (candidate.len() as f64).sqrt() * 4.0 // prefer longer words
                         };
                         let new_score = entry_score + word_cost;
                         let new_entry = Entry {
@@ -120,20 +120,14 @@ impl Dictionary {
                             prev_pos: i,
                             prev_idx: entry_idx,
                         };
-                        let insert_pos = dp[j]
-                            .binary_search_by(|entry| {
-                                entry
-                                    .score
-                                    .partial_cmp(&new_entry.score)
-                                    .unwrap_or(std::cmp::Ordering::Less)
-                            })
-                            .unwrap_or_else(|pos| pos);
-
-                        if insert_pos < n {
-                            dp[j].insert(insert_pos, new_entry);
-                            if dp[j].len() > n {
-                                dp[j].pop();
-                            }
+                        dp[j].push(new_entry);
+                        dp[j].sort_by(|a, b| {
+                            b.score
+                                .partial_cmp(&a.score)
+                                .unwrap_or(std::cmp::Ordering::Less)
+                        });
+                        if dp[j].len() > n {
+                            dp[j].truncate(n);
                         }
                     }
                 }

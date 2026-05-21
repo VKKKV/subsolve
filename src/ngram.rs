@@ -68,7 +68,7 @@ impl NgramModel {
     }
 
     /// Score a piece of text. Higher is more English-like.
-    /// Text should be A-Z uppercase only, no spaces/punctuation.
+    /// Any quadgram containing non-letters receives the floor score.
     pub fn score(&self, text: &str) -> f64 {
         let bytes = text.as_bytes();
         if bytes.len() < N {
@@ -78,8 +78,10 @@ impl NgramModel {
         let mut total = 0.0;
         let end = bytes.len() - (N - 1);
         for i in 0..end {
-            let key = bytes_to_key(&bytes[i..i + N]);
-            total += self.scores.get(&key).copied().unwrap_or(self.floor);
+            let quad = &bytes[i..i + N];
+            total += bytes_to_key(quad)
+                .and_then(|key| self.scores.get(&key).copied())
+                .unwrap_or(self.floor);
         }
         total
     }
@@ -99,12 +101,22 @@ fn quad_to_key(s: &str) -> u32 {
 
 /// Same but from a byte slice (for scoring hot path)
 #[inline]
-fn bytes_to_key(b: &[u8]) -> u32 {
+fn bytes_to_key(b: &[u8]) -> Option<u32> {
     debug_assert!(b.len() >= 4);
-    ((b[0] - b'A') as u32) << 15
-        | ((b[1] - b'A') as u32) << 10
-        | ((b[2] - b'A') as u32) << 5
-        | ((b[3] - b'A') as u32)
+    let a = letter_idx(b[0])?;
+    let b1 = letter_idx(b[1])?;
+    let c = letter_idx(b[2])?;
+    let d = letter_idx(b[3])?;
+    Some((a << 15) | (b1 << 10) | (c << 5) | d)
+}
+
+#[inline]
+fn letter_idx(b: u8) -> Option<u32> {
+    match b {
+        b'A'..=b'Z' => Some((b - b'A') as u32),
+        b'a'..=b'z' => Some((b - b'a') as u32),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -116,7 +128,9 @@ mod tests {
         assert_eq!(quad_to_key("AAAA"), 0);
         assert_eq!(quad_to_key("ZZZZ"), 0b11001_11001_11001_11001);
         assert_eq!(quad_to_key("THEY"), quad_to_key("THEY"));
-        assert_eq!(bytes_to_key(b"THEY"), quad_to_key("THEY"));
+        assert_eq!(bytes_to_key(b"THEY"), Some(quad_to_key("THEY")));
+        assert_eq!(bytes_to_key(b"they"), Some(quad_to_key("THEY")));
+        assert_eq!(bytes_to_key(b"TH Y"), None);
         assert_ne!(quad_to_key("AAAA"), quad_to_key("AAAB"));
     }
 
