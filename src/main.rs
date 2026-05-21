@@ -4,7 +4,6 @@ mod solver;
 mod vigenere;
 
 use clap::Parser;
-use std::cmp::Ordering;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -147,16 +146,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", vigenere::ungroup(input));
         return Ok(());
     }
-    let solver_mode = cli.vigenere;
-    if !solver_mode {
-        if cli.uppercase {
-            println!("{}", input.to_uppercase());
-            return Ok(());
-        }
-        if cli.lowercase {
-            println!("{}", input.to_lowercase());
-            return Ok(());
-        }
+    if cli.uppercase {
+        println!("{}", input.to_uppercase());
+        return Ok(());
+    }
+    if cli.lowercase {
+        println!("{}", input.to_lowercase());
+        return Ok(());
     }
 
     // === Frequency analysis (exit early, not a solve mode) ===
@@ -168,6 +164,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load quadgram model
     let scorer = match &cli.quadgrams {
         Some(path) if path.exists() => ngram::NgramModel::from_file(path)?,
+        Some(path) => {
+            eprintln!(
+                "warning: quadgram file '{}' not found, using embedded model",
+                path.display()
+            );
+            ngram::NgramModel::from_str(include_str!("../data/english_quadgrams.txt"))?
+        }
         _ => ngram::NgramModel::from_str(include_str!("../data/english_quadgrams.txt"))?,
     };
 
@@ -277,7 +280,7 @@ fn segment_and_rank(
             (qs, text)
         })
         .collect();
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Less));
+    scored.sort_by(|a, b| ngram::cmp_f64(b.0, a.0));
     scored.truncate(3);
     scored
 }

@@ -1,11 +1,18 @@
-/// Quadgram language model for scoring English text.
-///
-/// Loads a quadgram frequency table (e.g., from practicalcryptography.com)
-/// and computes log-probability scores for arbitrary text.
+//! Quadgram language model for scoring English text.
+//!
+//! Loads a quadgram frequency table (e.g., from practicalcryptography.com)
+//! and computes log-probability scores for arbitrary text.
+
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::Path;
 
 const N: usize = 4;
+
+/// Safe f64 comparison, with NaN treated as less.
+pub fn cmp_f64(a: f64, b: f64) -> Ordering {
+    a.partial_cmp(&b).unwrap_or(Ordering::Less)
+}
 
 #[derive(Clone)]
 pub struct NgramModel {
