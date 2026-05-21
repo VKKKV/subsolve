@@ -188,7 +188,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let top_n = if cli.top > 0 { cli.top } else { 1 };
-        for (i, sol) in solutions.iter().enumerate().take(top_n) {
+        for (_i, sol) in solutions.iter().enumerate().take(top_n) {
             let segmentations: Option<Vec<Vec<String>>> = if let Some(dict) = segment_dict.as_ref() {
                 let clean: String = sol
                     .plaintext
@@ -245,18 +245,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sol.key.to_lowercase()
             };
 
-            if top_n > 1 {
-                println!("--- Solution {} (score: {:.2}) ---", i, sol.score);
-                println!("Key (len={}): {}", sol.key_len, key);
+            // Key line — always visible
+            println!("Key: {} (len={}, score={:.2})", key, sol.key_len, sol.score);
+            let sep = "─".repeat(65);
+            println!("{sep}");
+            println!("{plaintext}");
+            if !alternative_segmentations.is_empty() {
+                println!("{sep}");
+                for (si, line) in alternative_segmentations.iter().enumerate() {
+                    if cli.verbose {
+                        println!("  alt {}: {}", si + 2, line);
+                    } else {
+                        let short: String = line.chars().take(80).collect();
+                        let suffix = if line.len() > 80 { "..." } else { "" };
+                        println!("  alt {}: {}{}", si + 2, short, suffix);
+                    }
+                }
             }
-            println!("{}", plaintext);
-            for (si, line) in alternative_segmentations.iter().enumerate() {
-                println!("  alt {}: {}", si + 2, line);
-            }
-            if cli.verbose && i == 0 {
-                println!();
-                println!("Key: {} (length {})", key, sol.key_len);
-                println!("Score: {:.2}", sol.score);
+            if cli.verbose {
+                println!("{sep}");
             }
         }
         return Ok(());
