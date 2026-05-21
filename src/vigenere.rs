@@ -56,10 +56,25 @@ impl<'a> VigenereSolver<'a> {
         known_key_len: Option<usize>,
         verbose: bool,
     ) -> Vec<VigenereSolution> {
-        let max = known_key_len
-            .unwrap_or(max_key_len.min(self.clean.len().max(2) / 2))
-            .max(1)
-            .min(self.clean.len().max(1));
+        let known_key_len = known_key_len.and_then(|k| {
+            if k > self.clean.len() {
+                eprintln!(
+                    "warning: --key-len {} exceeds ciphertext length {}, ignoring",
+                    k,
+                    self.clean.len()
+                );
+                None
+            } else {
+                Some(k)
+            }
+        });
+
+        let max = if let Some(k) = known_key_len {
+            k
+        } else {
+            max_key_len.min(self.clean.len().max(2) / 2)
+        }
+        .max(1);
 
         let candidates = known_key_len
             .map(|k| vec![k])

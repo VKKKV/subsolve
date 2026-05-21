@@ -133,6 +133,13 @@ impl<'a> Solver<'a> {
             }
 
             let idx = (ci - b'A') as usize;
+            if locked[idx] {
+                eprintln!(
+                    "warning: clue '{}' overwrites previous mapping for '{}'",
+                    clue,
+                    ci as char
+                );
+            }
             key[idx] = pi;
             locked[idx] = true;
         }
