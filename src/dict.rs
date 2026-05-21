@@ -57,59 +57,83 @@ impl Dictionary {
     /// Allows single-letter words (a, i) as fallback.
     /// Returns None if no valid segmentation exists.
     pub fn segment(&self, text: &str) -> Option<Vec<String>> {
-        let text = text.to_ascii_lowercase();
-        let n = text.len();
+        self.segment_nbest(text, 1)
+            .map(|segmentations| segmentations.into_iter().next().unwrap())
+    }
+
+    /// Return top-N Viterbi segmentations, best score first.
+    pub fn segment_nbest(&self, text: &str, n: usize) -> Option<Vec<Vec<String>>> {
         if n == 0 {
-            return Some(vec![]);
+            return Some(Vec::new());
+        }
+
+        let text = text.to_ascii_lowercase();
+        let total_len = text.len();
+        if total_len == 0 {
+            return Some(vec![vec![]]);
         }
 
         struct Entry {
             score: f64,
-            split: usize,
+            prev_pos: usize,
+            prev_idx: usize,
         }
 
-        let mut dp: Vec<Option<Entry>> = (0..=n).map(|_| None).collect();
-        dp[0] = Some(Entry {
+        let mut dp: Vec<Vec<Entry>> = (0..=total_len).map(|_| Vec::new()).collect();
+        dp[0].push(Entry {
             score: 0.0,
-            split: 0,
+            prev_pos: 0,
+            prev_idx: 0,
         });
 
-        let max_len = self.max_word_len.min(n);
+        let max_len = self.max_word_len.min(total_len);
 
-        for i in 0..n {
-            let entry_score = match dp[i].as_ref() {
-                Some(e) => e.score,
-                None => continue,
-            };
+        for i in 0..total_len {
+            if dp[i].is_empty() {
+                continue;
+            }
 
-            let end_max = (i + max_len).min(n);
-            for j in (i + 1)..=end_max {
-                let candidate = &text[i..j];
-                let mut valid = self.contains(candidate);
+            let end_max = (i + max_len).min(total_len);
+            for entry_idx in 0..dp[i].len() {
+                let entry_score = dp[i][entry_idx].score;
+                for j in (i + 1)..=end_max {
+                    let candidate = &text[i..j];
+                    let mut valid = self.contains(candidate);
 
-                // Also allow single-letter English words
-                if !valid && candidate.len() == 1 {
-                    valid = true; // any single letter is valid as fallback
-                }
+                    // Also allow single-letter English words
+                    if !valid && candidate.len() == 1 {
+                        valid = true; // any single letter is valid as fallback
+                    }
 
-                if valid {
-                    // Cost: prefer known words over sequences of single letters.
-                    // Single letters get a penalty, multi-letter words get a bonus
-                    // proportional to their length.
-                    let word_cost = if candidate.len() == 1 && !self.contains(candidate) {
-                        10.0 // penalize single-letter unknowns
-                    } else {
-                        -(candidate.len() as f64) * 2.0 // prefer longer words
-                    };
-                    let new_score = entry_score + word_cost;
+                    if valid {
+                        // Cost: prefer known words over sequences of single letters.
+                        // Single letters get a penalty, multi-letter words get a bonus
+                        // proportional to their length.
+                        let word_cost = if candidate.len() == 1 && !self.contains(candidate) {
+                            10.0 // penalize single-letter unknowns
+                        } else {
+                            -(candidate.len() as f64).sqrt() * 4.0 // prefer longer words
+                        };
+                        let new_score = entry_score + word_cost;
+                        let new_entry = Entry {
+                            score: new_score,
+                            prev_pos: i,
+                            prev_idx: entry_idx,
+                        };
+                        let insert_pos = dp[j]
+                            .binary_search_by(|entry| {
+                                entry
+                                    .score
+                                    .partial_cmp(&new_entry.score)
+                                    .unwrap_or(std::cmp::Ordering::Less)
+                            })
+                            .unwrap_or_else(|pos| pos);
 
-                    match &dp[j] {
-                        Some(existing) if existing.score <= new_score => {}
-                        _ => {
-                            dp[j] = Some(Entry {
-                                score: new_score,
-                                split: i,
-                            });
+                        if insert_pos < n {
+                            dp[j].insert(insert_pos, new_entry);
+                            if dp[j].len() > n {
+                                dp[j].pop();
+                            }
                         }
                     }
                 }
@@ -118,21 +142,31 @@ impl Dictionary {
 
         // If no perfect segmentation, fall back to treating unknown words
         // as single characters (worst-case segmentation)
-        if dp[n].is_none() {
-            return Some(text.chars().map(|c| c.to_string()).collect());
+        if dp[total_len].is_empty() {
+            return Some(vec![text.chars().map(|c| c.to_string()).collect()]);
         }
 
-        // Backtrack to build word list
-        let mut words = Vec::new();
-        let mut pos = n;
-        while pos > 0 {
-            let entry = dp[pos].as_ref()?;
-            let start = entry.split;
-            words.push(text[start..pos].to_string());
-            pos = start;
+        // Backtrack each retained path to build word lists.
+        let mut segmentations = Vec::new();
+        for result_idx in 0..dp[total_len].len() {
+            let mut words = Vec::new();
+            let mut pos = total_len;
+            let mut idx = result_idx;
+
+            while pos > 0 {
+                let entry = dp[pos].get(idx)?;
+                words.push(text[entry.prev_pos..pos].to_string());
+                pos = entry.prev_pos;
+                idx = entry.prev_idx;
+            }
+
+            words.reverse();
+            if !segmentations.contains(&words) {
+                segmentations.push(words);
+            }
         }
-        words.reverse();
-        Some(words)
+
+        Some(segmentations)
     }
 
     /// Score a text based on what fraction of words are in the dictionary.
@@ -222,6 +256,42 @@ mod tests {
         let dict = test_dict();
         let result = dict.segment("thequickbrownfox").unwrap();
         assert_eq!(result, vec!["the", "quick", "brown", "fox"]);
+    }
+
+    #[test]
+    fn test_segment_nbest() {
+        let dict = Dictionary::from_str(
+            "the
+quick
+brown
+fox
+thequick
+brownfox
+quickbrown
+",
+        );
+        let results = dict.segment_nbest("thequickbrownfox", 3).unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results.first(),
+            Some(&vec![
+                "the".to_string(),
+                "quick".to_string(),
+                "brown".to_string(),
+                "fox".to_string(),
+            ])
+        );
+        assert!(results.contains(&vec![
+            "the".to_string(),
+            "quick".to_string(),
+            "brownfox".to_string(),
+        ]));
+        assert!(results.contains(&vec![
+            "thequick".to_string(),
+            "brown".to_string(),
+            "fox".to_string(),
+        ]));
     }
 
     #[test]
