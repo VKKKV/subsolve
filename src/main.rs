@@ -4,6 +4,7 @@ mod solver;
 mod vigenere;
 
 use clap::Parser;
+use std::cmp::Ordering;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -170,15 +171,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => ngram::NgramModel::from_str(include_str!("../data/english_quadgrams.txt"))?,
     };
 
+    let output_dict = if cli.no_segment {
+        None
+    } else {
+        Some(dict::Dictionary::from_str(include_str!(
+            "../data/words.txt"
+        )))
+    };
+
     // === Vigenere mode ===
     if cli.vigenere {
-        let segment_dict = if cli.no_segment {
-            None
-        } else {
-            Some(dict::Dictionary::from_str(include_str!(
-                "../data/words.txt"
-            )))
-        };
         let solver = vigenere::VigenereSolver::new(input, &scorer);
         let solutions = solver.solve(cli.max_key_len, cli.key_len, cli.verbose);
 
@@ -189,79 +191,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let top_n = if cli.top > 0 { cli.top } else { 1 };
         for (_i, sol) in solutions.iter().enumerate().take(top_n) {
-            let segmentations: Option<Vec<Vec<String>>> = if let Some(dict) = segment_dict.as_ref() {
-                let clean: String = sol
-                    .plaintext
-                    .chars()
-                    .filter(|c| c.is_ascii_alphabetic())
-                    .collect();
-                dict.segment_nbest(&clean, 5).map(|segmentations| {
-                    let mut scored: Vec<(f64, Vec<String>)> = segmentations
-                        .into_iter()
-                        .map(|words| {
-                            let with_spaces = words.join(" ");
-                            (scorer.score(&with_spaces), words)
-                        })
-                        .collect();
-                    scored.sort_by(|a, b| {
-                        b.0.partial_cmp(&a.0)
-                            .unwrap_or(std::cmp::Ordering::Less)
-                    });
-                    scored
-                        .into_iter()
-                        .take(3)
-                        .map(|(_, words)| words)
-                        .collect::<Vec<Vec<String>>>()
-                })
-            } else {
-                None
-            };
-            let mut plaintext = segmentations
-                .as_ref()
-                .and_then(|items| items.first())
-                .map(|words| words.join(" "))
-                .unwrap_or_else(|| sol.plaintext.clone());
-            let mut alternative_segmentations: Vec<String> = segmentations
-                .as_ref()
-                .map(|items| items.iter().skip(1).map(|words| words.join(" ")).collect())
-                .unwrap_or_default();
-
-            if cli.uppercase {
-                plaintext = plaintext.to_uppercase();
-                alternative_segmentations = alternative_segmentations
-                    .into_iter()
-                    .map(|line| line.to_uppercase())
-                    .collect();
-            } else {
-                plaintext = plaintext.to_lowercase();
-                alternative_segmentations = alternative_segmentations
-                    .into_iter()
-                    .map(|line| line.to_lowercase())
-                    .collect();
-            };
+            let (plaintext, alternatives) =
+                prepare_output_text(&sol.plaintext, output_dict.as_ref(), &scorer, cli.uppercase);
             let key = if cli.uppercase {
                 sol.key.clone()
             } else {
                 sol.key.to_lowercase()
             };
 
-            // Key line — always visible
-            println!("Key: {} (len={}, score={:.2})", key, sol.key_len, sol.score);
-            let sep = "─".repeat(65);
-            println!("{sep}");
-            println!("{}", word_wrap(&plaintext, 72));
-            if !alternative_segmentations.is_empty() {
-                println!("{sep}");
-                let max_alt = if cli.verbose { 120 } else { 80 };
-                for (si, line) in alternative_segmentations.iter().enumerate() {
-                    let short: String = line.chars().take(max_alt).collect();
-                    let suffix = if line.len() > max_alt { "..." } else { "" };
-                    println!("  alt {}: {}{}", si + 2, short, suffix);
-                }
-            }
-            if cli.verbose {
-                println!("{sep}");
-            }
+            println!("Key: {} | Score: {:.2} (quadgram)", key, sol.score);
+            print_solution_body(&plaintext, &alternatives, cli.verbose);
         }
         return Ok(());
     }
@@ -283,7 +222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let solver = solver::Solver::new(input, scorer, dict, cli.patristocrat);
+    let solver = solver::Solver::new(input, scorer.clone(), dict, cli.patristocrat);
     let top_n = if cli.top > 0 { cli.top } else { 1 };
     let solutions = solver.solve(
         cli.restarts,
@@ -298,35 +237,106 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    if top_n == 1 {
-        println!("{}", solutions[0].plaintext);
-        if cli.verbose {
+    for (i, sol) in solutions.iter().enumerate() {
+        if i > 0 {
             println!();
-            println!("Score: {:.2}", solutions[0].score);
+        }
+        let (plaintext, alternatives) =
+            prepare_output_text(&sol.plaintext, output_dict.as_ref(), &scorer, cli.uppercase);
+        println!("Score: {:.2} (quadgram)", sol.quad_score);
+        print_solution_body(&plaintext, &alternatives, cli.verbose);
+        if cli.verbose {
             if dict.is_some() {
-                println!("Dict coverage: {:.1}%", solutions[0].dict_score * 100.0);
+                println!("Dict coverage: {:.1}%", sol.dict_score * 100.0);
             }
             println!("Mapping (cipher→plain):");
             for i in 0..26 {
                 let c = (b'A' + i as u8) as char;
-                let p = solutions[0].mapping[i] as char;
+                let p = sol.mapping[i] as char;
                 if c != p {
                     println!("  {} → {}", c, p);
                 }
             }
         }
-    } else {
-        for (i, sol) in solutions.iter().enumerate() {
-            println!("--- Solution {} (score: {:.2}) ---", i, sol.score);
-            if dict.is_some() {
-                println!("Dict coverage: {:.1}%", sol.dict_score * 100.0);
-            }
-            println!("{}", sol.plaintext);
-            println!();
-        }
     }
 
     Ok(())
+}
+
+fn segment_and_rank(
+    clean: &str,
+    dict: &dict::Dictionary,
+    scorer: &ngram::NgramModel,
+) -> Vec<(f64, String)> {
+    let segs = dict.segment_nbest(clean, 5).unwrap_or_default();
+    let mut scored: Vec<(f64, String)> = segs
+        .into_iter()
+        .map(|words| {
+            let text = words.join(" ");
+            let qs = scorer.score(&text);
+            (qs, text)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(Ordering::Less));
+    scored.truncate(3);
+    scored
+}
+
+fn prepare_output_text(
+    plaintext: &str,
+    dict: Option<&dict::Dictionary>,
+    scorer: &ngram::NgramModel,
+    uppercase: bool,
+) -> (String, Vec<(f64, String)>) {
+    let clean: String = plaintext
+        .chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .collect();
+    let scored = dict
+        .map(|dict| segment_and_rank(&clean, dict, scorer))
+        .unwrap_or_default();
+
+    let text = scored
+        .first()
+        .map(|(_, text)| text.as_str())
+        .unwrap_or(plaintext);
+    let text = apply_output_case(text, uppercase);
+    let alternatives = scored
+        .iter()
+        .skip(1)
+        .map(|(score, text)| (*score, apply_output_case(text, uppercase)))
+        .collect();
+
+    (text, alternatives)
+}
+
+fn apply_output_case(text: &str, uppercase: bool) -> String {
+    if uppercase {
+        text.to_uppercase()
+    } else {
+        text.to_lowercase()
+    }
+}
+
+fn print_solution_body(plaintext: &str, alternatives: &[(f64, String)], verbose: bool) {
+    let sep = output_separator();
+    println!("{sep}");
+    println!("{}", word_wrap(plaintext, 72));
+    println!("{sep}");
+    let max_alt = if verbose { 120 } else { 80 };
+    for (si, (score, line)) in alternatives.iter().enumerate() {
+        let short: String = line.chars().take(max_alt).collect();
+        let suffix = if line.chars().count() > max_alt {
+            "..."
+        } else {
+            ""
+        };
+        println!("  alt {} (q: {:.2}): {}{}", si + 2, score, short, suffix);
+    }
+}
+
+fn output_separator() -> String {
+    "─".repeat(65)
 }
 
 fn print_analysis(ciphertext: &str) {

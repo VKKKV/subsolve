@@ -7,6 +7,7 @@ use std::path::Path;
 
 const N: usize = 4;
 
+#[derive(Clone)]
 pub struct NgramModel {
     scores: HashMap<u32, f64>,
     floor: f64,
