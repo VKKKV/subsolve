@@ -249,17 +249,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Key: {} (len={}, score={:.2})", key, sol.key_len, sol.score);
             let sep = "─".repeat(65);
             println!("{sep}");
-            println!("{plaintext}");
+            println!("{}", word_wrap(&plaintext, 72));
             if !alternative_segmentations.is_empty() {
                 println!("{sep}");
+                let max_alt = if cli.verbose { 120 } else { 80 };
                 for (si, line) in alternative_segmentations.iter().enumerate() {
-                    if cli.verbose {
-                        println!("  alt {}: {}", si + 2, line);
-                    } else {
-                        let short: String = line.chars().take(80).collect();
-                        let suffix = if line.len() > 80 { "..." } else { "" };
-                        println!("  alt {}: {}{}", si + 2, short, suffix);
-                    }
+                    let short: String = line.chars().take(max_alt).collect();
+                    let suffix = if line.len() > max_alt { "..." } else { "" };
+                    println!("  alt {}: {}{}", si + 2, short, suffix);
                 }
             }
             if cli.verbose {
@@ -399,6 +396,24 @@ fn index_of_coincidence(letters: &[char]) -> f64 {
         .map(|&c| if c > 0 { c * (c - 1) } else { 0 })
         .sum();
     sum as f64 / (n * (n - 1.0))
+}
+
+fn word_wrap(text: &str, width: usize) -> String {
+    let mut result = String::new();
+    let mut line_len = 0;
+    for word in text.split_whitespace() {
+        if line_len + word.len() + 1 > width && line_len > 0 {
+            result.push('\n');
+            line_len = 0;
+        }
+        if line_len > 0 {
+            result.push(' ');
+            line_len += 1;
+        }
+        result.push_str(word);
+        line_len += word.len();
+    }
+    result
 }
 
 #[cfg(test)]
