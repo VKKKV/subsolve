@@ -81,23 +81,24 @@ impl<'a> VigenereSolver<'a> {
             let plain = self.decrypt(&shifts);
             let score = self.quadgrams.score(&plain);
 
-            solutions.push(VigenereSolution {
-                plaintext: self.reconstruct(&plain),
-                key,
-                key_len: kl,
-                shifts,
-                score,
-            });
-
-            if verbose {
-                let preview: String = plain.chars().take(60).collect();
-                eprintln!(
-                    "  key_len={:2}  score={:8.2}  key={:12}  {}",
-                    kl,
+            // Collect candidates; print sorted table in verbose mode
+            if !verbose {
+                solutions.push(VigenereSolution {
+                    plaintext: self.reconstruct(&plain),
+                    key,
+                    key_len: kl,
+                    shifts,
                     score,
-                    solutions.last().unwrap().key,
-                    preview
-                );
+                });
+            } else {
+                // Collect for later sorted display
+                solutions.push(VigenereSolution {
+                    plaintext: self.reconstruct(&plain),
+                    key: key.clone(),
+                    key_len: kl,
+                    shifts,
+                    score,
+                });
             }
         }
 
@@ -107,6 +108,23 @@ impl<'a> VigenereSolver<'a> {
 
         solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
         solutions.truncate(5);
+
+        if verbose {
+            eprintln!();
+            eprintln!("Key candidates (sorted by quadgram score):");
+            eprintln!("  {:>3}  {:<14}  {:>8}", "len", "key", "score");
+            eprintln!("  {:-^3}  {:-^14}  {:-^8}", "", "", "");
+            for (idx, sol) in solutions.iter().enumerate() {
+                eprintln!(
+                    "  {:>3}  {:<14}  {:>8.2}{}",
+                    sol.key_len,
+                    sol.key.to_lowercase(),
+                    sol.score,
+                    if idx == 0 { "  \u{2190} best" } else { "" }
+                );
+            }
+        }
+
         solutions
     }
 
