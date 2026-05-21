@@ -4,7 +4,6 @@
 /// - Fast word lookup via HashSet
 /// - Word boundary insertion (Viterbi DP) for patristocrat mode
 /// - Word frequency scoring for dictionary mode
-
 use std::collections::HashSet;
 
 pub struct Dictionary {
@@ -41,7 +40,10 @@ impl Dictionary {
             }
         }
 
-        Self { words, max_word_len }
+        Self {
+            words,
+            max_word_len,
+        }
     }
 
     /// Check if a word is in the dictionary
@@ -67,7 +69,10 @@ impl Dictionary {
         }
 
         let mut dp: Vec<Option<Entry>> = (0..=n).map(|_| None).collect();
-        dp[0] = Some(Entry { score: 0.0, split: 0 });
+        dp[0] = Some(Entry {
+            score: 0.0,
+            split: 0,
+        });
 
         let max_len = self.max_word_len.min(n);
 
@@ -92,9 +97,9 @@ impl Dictionary {
                     // Single letters get a penalty, multi-letter words get a bonus
                     // proportional to their length.
                     let word_cost = if candidate.len() == 1 && !self.contains(candidate) {
-                        10.0  // penalize single-letter unknowns
+                        10.0 // penalize single-letter unknowns
                     } else {
-                        -(candidate.len() as f64) * 2.0  // prefer longer words
+                        -(candidate.len() as f64) * 2.0 // prefer longer words
                     };
                     let new_score = entry_score + word_cost;
 

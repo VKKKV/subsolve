@@ -2,7 +2,6 @@
 ///
 /// Loads a quadgram frequency table (e.g., from practicalcryptography.com)
 /// and computes log-probability scores for arbitrary text.
-
 use std::collections::HashMap;
 use std::path::Path;
 

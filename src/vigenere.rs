@@ -5,7 +5,6 @@
 /// 2. Per-column chi-squared vs English frequencies → initial key
 /// 3. Quadgram scoring → pick best key length/shift combo
 /// 4. Hill climbing refinement on individual key positions
-
 use std::collections::HashMap;
 
 use crate::ngram::NgramModel;
@@ -14,10 +13,9 @@ const AZ: &[u8; 26] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /// English letter frequencies (A-Z)
 const EN_FREQ: [f64; 26] = [
-    0.08167, 0.01492, 0.02782, 0.04253, 0.12702, 0.02228, 0.02015, 0.06094,
-    0.06966, 0.00153, 0.00772, 0.04025, 0.02406, 0.06749, 0.07507, 0.01929,
-    0.00095, 0.05987, 0.06327, 0.09056, 0.02758, 0.00978, 0.02360, 0.00150,
-    0.01974, 0.00074,
+    0.08167, 0.01492, 0.02782, 0.04253, 0.12702, 0.02228, 0.02015, 0.06094, 0.06966, 0.00153,
+    0.00772, 0.04025, 0.02406, 0.06749, 0.07507, 0.01929, 0.00095, 0.05987, 0.06327, 0.09056,
+    0.02758, 0.00978, 0.02360, 0.00150, 0.01974, 0.00074,
 ];
 
 pub struct VigenereSolver<'a> {
@@ -31,6 +29,7 @@ pub struct VigenereSolution {
     pub plaintext: String,
     pub key: String,
     pub key_len: usize,
+    #[allow(dead_code)]
     pub shifts: Vec<u8>,
     pub score: f64,
 }
@@ -43,7 +42,11 @@ impl<'a> VigenereSolver<'a> {
             .filter(|c| c.is_ascii_alphabetic())
             .map(|c| c.to_ascii_uppercase() as u8)
             .collect();
-        Self { clean, orig, quadgrams }
+        Self {
+            clean,
+            orig,
+            quadgrams,
+        }
     }
 
     /// Solve Vigenere cipher automatically
@@ -85,7 +88,10 @@ impl<'a> VigenereSolver<'a> {
                 let preview: String = plain.chars().take(60).collect();
                 eprintln!(
                     "  key_len={:2}  score={:8.2}  key={:12}  {}",
-                    kl, score, solutions.last().unwrap().key, preview
+                    kl,
+                    score,
+                    solutions.last().unwrap().key,
+                    preview
                 );
             }
         }
@@ -134,7 +140,7 @@ impl<'a> VigenereSolver<'a> {
             .map(|&(kl, ic_dist)| {
                 let kas = kasiski_scores.get(&kl).copied().unwrap_or(0) as f64;
                 // Combined score: IC distance (lower better) - Kasiski boost
-                (kl, ic_dist - kas as f64 * 0.01)
+                (kl, ic_dist - kas * 0.01)
             })
             .collect();
         merged.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
@@ -157,7 +163,13 @@ impl<'a> VigenereSolver<'a> {
         }
         let mut total_ic = 0.0;
         for col in 0..key_len {
-            let column: Vec<u8> = self.clean.iter().skip(col).step_by(key_len).copied().collect();
+            let column: Vec<u8> = self
+                .clean
+                .iter()
+                .skip(col)
+                .step_by(key_len)
+                .copied()
+                .collect();
             total_ic += self.ic(&column);
         }
         total_ic / key_len as f64
@@ -173,7 +185,10 @@ impl<'a> VigenereSolver<'a> {
         for &c in letters {
             counts[(c - b'A') as usize] += 1;
         }
-        let sum: usize = counts.iter().map(|&c| if c > 1 { c * (c - 1) } else { 0 }).sum();
+        let sum: usize = counts
+            .iter()
+            .map(|&c| if c > 1 { c * (c - 1) } else { 0 })
+            .sum();
         sum as f64 / (n * (n - 1.0))
     }
 
@@ -352,7 +367,10 @@ mod tests {
     use crate::ngram::NgramModel;
 
     fn model() -> NgramModel {
-        NgramModel::from_str("TION 1000\nNTHE 2000\nTHER 500\nTHAT 300\nTHEY 200\nENGL 100\nLISH 100\n").unwrap()
+        NgramModel::from_str(
+            "TION 1000\nNTHE 2000\nTHER 500\nTHAT 300\nTHEY 200\nENGL 100\nLISH 100\n",
+        )
+        .unwrap()
     }
 
     fn full_model() -> NgramModel {
@@ -362,10 +380,14 @@ mod tests {
     #[test]
     fn test_ic_english_vs_random() {
         let m = model();
-        let solver = VigenereSolver::new("THEQUICKBROWNFOXJUMPSOVERTHELAZYDOGTHEQUICKBROWNFOXJUMPSOVERTHELAZYDOG", &m);
+        let solver = VigenereSolver::new(
+            "THEQUICKBROWNFOXJUMPSOVERTHELAZYDOGTHEQUICKBROWNFOXJUMPSOVERTHELAZYDOG",
+            &m,
+        );
         let ic_eng = solver.avg_ic(1);
         let m2 = model();
-        let solver2 = VigenereSolver::new("QWERTYUIOPASDFGHJKLZXCVBNMQWERTYUIOPASDFGHJKLZXCVBNM", &m2);
+        let solver2 =
+            VigenereSolver::new("QWERTYUIOPASDFGHJKLZXCVBNMQWERTYUIOPASDFGHJKLZXCVBNM", &m2);
         let ic_rnd = solver2.avg_ic(1);
         assert!(ic_eng > ic_rnd);
     }
@@ -398,7 +420,10 @@ mod tests {
         // Should have same length and letter distribution
         assert_eq!(
             orig.chars().filter(|c| c.is_ascii_alphabetic()).count(),
-            scrambled.chars().filter(|c| c.is_ascii_alphabetic()).count()
+            scrambled
+                .chars()
+                .filter(|c| c.is_ascii_alphabetic())
+                .count()
         );
         // Should be different (unless astronomically unlikely)
         if scrambled.to_uppercase() == orig.to_uppercase() {

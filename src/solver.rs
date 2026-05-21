@@ -3,7 +3,6 @@
 /// Uses random restart hill climbing with quadgram scoring.
 /// Each restart starts with a random key and iteratively
 /// swaps pairs of letters, keeping changes that improve the score.
-
 use rand::seq::SliceRandom;
 use rand::Rng;
 
@@ -106,7 +105,7 @@ impl<'a> Solver<'a> {
         let mut key = ALPHABET;
         let mut locked = [false; 26];
 
-        for clue in clues.split(|c| c == ',' || c == ';') {
+        for clue in clues.split(&[',', ';', ' ']) {
             let clue = clue.trim();
             if clue.len() < 3 {
                 continue;
@@ -207,7 +206,10 @@ impl<'a> Solver<'a> {
                 .filter(|c| c.is_ascii_alphabetic())
                 .collect();
             let _final_quad = self.scorer.score(&dec_clean);
-            let dict_s = self.dict.map(|d: &Dictionary| d.score_text(&dec_clean)).unwrap_or(0.0);
+            let dict_s = self
+                .dict
+                .map(|d: &Dictionary| d.score_text(&dec_clean))
+                .unwrap_or(0.0);
 
             all_solutions.push(Solution {
                 plaintext,
