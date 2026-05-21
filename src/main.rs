@@ -34,6 +34,10 @@ struct Cli {
     #[arg(long, default_value = "20")]
     max_key_len: usize,
 
+    /// Disable automatic word segmentation of output
+    #[arg(long)]
+    no_segment: bool,
+
     // === Substitution cipher options ===
     #[arg(short = 'r', long, default_value = "20")]
     restarts: usize,
@@ -57,8 +61,16 @@ struct Cli {
     #[arg(long)]
     scramble: bool,
 
-    #[arg(long)]
-    group5: bool,
+    /// Group letters into blocks of N (default 5 if no value given)
+    #[arg(
+        long,
+        alias = "group5",
+        default_missing_value = "5",
+        num_args = 0..=1,
+        require_equals = false,
+        value_name = "N"
+    )]
+    group: Option<String>,
 
     #[arg(long)]
     ungroup: bool,
@@ -82,12 +94,30 @@ struct Cli {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let mut group_size = None;
+    let mut group_consumed_input = None;
+
+    if let Some(value) = &cli.group {
+        match value.parse::<usize>() {
+            Ok(0) => {
+                eprintln!("error: group size must be at least 1");
+                std::process::exit(1);
+            }
+            Ok(n) => group_size = Some(n),
+            Err(_) => {
+                group_size = Some(5);
+                group_consumed_input = Some(value.clone());
+            }
+        }
+    }
 
     // Read input text
     let input = if let Some(path) = &cli.file {
         std::fs::read_to_string(path)?
     } else if let Some(text) = &cli.ciphertext {
         text.clone()
+    } else if let Some(text) = group_consumed_input {
+        text
     } else if !std::io::stdin().is_terminal() {
         let mut buf = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
@@ -108,21 +138,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", vigenere::scramble(input));
         return Ok(());
     }
-    if cli.group5 {
-        println!("{}", vigenere::group5(input));
+    if let Some(n) = group_size {
+        println!("{}", vigenere::groupn(input, n));
         return Ok(());
     }
     if cli.ungroup {
         println!("{}", vigenere::ungroup(input));
         return Ok(());
     }
-    if cli.uppercase {
-        println!("{}", input.to_uppercase());
-        return Ok(());
-    }
-    if cli.lowercase {
-        println!("{}", input.to_lowercase());
-        return Ok(());
+    let solver_mode = cli.vigenere;
+    if !solver_mode {
+        if cli.uppercase {
+            println!("{}", input.to_uppercase());
+            return Ok(());
+        }
+        if cli.lowercase {
+            println!("{}", input.to_lowercase());
+            return Ok(());
+        }
     }
 
     // === Frequency analysis (exit early, not a solve mode) ===
@@ -139,6 +172,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // === Vigenere mode ===
     if cli.vigenere {
+        let segment_dict = if cli.no_segment {
+            None
+        } else {
+            Some(dict::Dictionary::from_str(include_str!(
+                "../data/words.txt"
+            )))
+        };
         let solver = vigenere::VigenereSolver::new(input, &scorer);
         let solutions = solver.solve(cli.max_key_len, cli.key_len, cli.verbose);
 
@@ -149,14 +189,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let top_n = if cli.top > 0 { cli.top } else { 1 };
         for (i, sol) in solutions.iter().enumerate().take(top_n) {
+            let segmentations = if let Some(dict) = segment_dict.as_ref() {
+                let clean: String = sol
+                    .plaintext
+                    .chars()
+                    .filter(|c| c.is_ascii_alphabetic())
+                    .collect();
+                dict.segment_nbest(&clean, 3)
+            } else {
+                None
+            };
+            let mut plaintext = segmentations
+                .as_ref()
+                .and_then(|items| items.first())
+                .map(|words| words.join(" "))
+                .unwrap_or_else(|| sol.plaintext.clone());
+            let mut alternative_segmentations: Vec<String> = segmentations
+                .as_ref()
+                .map(|items| items.iter().skip(1).map(|words| words.join(" ")).collect())
+                .unwrap_or_default();
+
+            if cli.uppercase {
+                plaintext = plaintext.to_uppercase();
+                alternative_segmentations = alternative_segmentations
+                    .into_iter()
+                    .map(|line| line.to_uppercase())
+                    .collect();
+            } else {
+                plaintext = plaintext.to_lowercase();
+                alternative_segmentations = alternative_segmentations
+                    .into_iter()
+                    .map(|line| line.to_lowercase())
+                    .collect();
+            };
+            let key = if cli.uppercase {
+                sol.key.clone()
+            } else {
+                sol.key.to_lowercase()
+            };
+
             if top_n > 1 {
                 println!("--- Solution {} (score: {:.2}) ---", i, sol.score);
-                println!("Key (len={}): {}", sol.key_len, sol.key);
+                println!("Key (len={}): {}", sol.key_len, key);
             }
-            println!("{}", sol.plaintext);
+            println!("{}", plaintext);
+            for (si, line) in alternative_segmentations.iter().enumerate() {
+                println!("  alt {}: {}", si + 2, line);
+            }
             if cli.verbose && i == 0 {
                 println!();
-                println!("Key: {} (length {})", sol.key, sol.key_len);
+                println!("Key: {} (length {})", key, sol.key_len);
                 println!("Score: {:.2}", sol.score);
             }
         }
@@ -251,7 +333,10 @@ fn print_analysis(ciphertext: &str) {
         .collect();
     sorted.sort_by(|a, b| b.0.cmp(&a.0));
 
-    println!("=== Frequency Analysis ===\nTotal letters: {}\n\nCipher letter frequencies:", total as usize);
+    println!(
+        "=== Frequency Analysis ===\nTotal letters: {}\n\nCipher letter frequencies:",
+        total as usize
+    );
     println!("Letter     Count    Freq%   English rank");
     let dashes = "-".repeat(42);
     println!("{dashes}");
