@@ -1,0 +1,11 @@
+[package]
+name = "subsolve"
+version = "0.1.0"
+edition = "2021"
+description = "Offline substitution cipher solver using quadgram statistics and hill climbing"
+authors = ["subsolve contributors"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+rand = "0.8"
+atty = "0.2"
