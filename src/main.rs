@@ -1,15 +1,16 @@
 mod dict;
 mod ngram;
 mod solver;
+mod vigenere;
 
 use clap::Parser;
 use std::path::PathBuf;
 
-/// subsolve — offline substitution cipher solver
+/// subsolve — offline cryptogram solver
 ///
-/// Uses quadgram frequency analysis + hill climbing with random restarts.
-/// Supports cryptoquips (word boundaries preserved) and patristocrats
-/// (word boundaries removed). Optional dictionary mode for validation.
+/// Supports substitution ciphers (quadgram HC + dictionary) and
+/// Vigenere ciphers (Kasiski/IC + chi-squared + quadgram refinement).
+/// All modes work offline with embedded language models.
 #[derive(Parser)]
 #[command(name = "subsolve", version, about)]
 struct Cli {
@@ -20,52 +21,69 @@ struct Cli {
     #[arg(short = 'f', long)]
     file: Option<PathBuf>,
 
-    /// Number of random restarts (default: 20)
+    /// Mode: vigenere (default: substitution)
+    #[arg(long)]
+    vigenere: bool,
+
+    /// Known key length for Vigenere (auto-detect if unset)
+    #[arg(long)]
+    key_len: Option<usize>,
+
+    /// Max key length to try for Vigenere (default: 20)
+    #[arg(long, default_value = "20")]
+    max_key_len: usize,
+
+    // === Substitution cipher options ===
     #[arg(short = 'r', long, default_value = "20")]
     restarts: usize,
 
-    /// Iterations per restart (default: 2000)
     #[arg(short = 'i', long, default_value = "2000")]
     iterations: usize,
 
-    /// Known letter mappings: "E=T,G=R" or "E=T,G->R"
     #[arg(long)]
     clues: Option<String>,
 
-    /// Path to quadgram data file
-    #[arg(long)]
-    quadgrams: Option<PathBuf>,
-
-    /// Path to dictionary file for dictionary/patristocrat mode
     #[arg(long)]
     dict: Option<PathBuf>,
 
-    /// Patristocrat mode (no word boundaries in ciphertext)
     #[arg(long)]
     patristocrat: bool,
 
-    /// Number of top solutions to show (default: 1)
-    #[arg(long, default_value = "1")]
+    #[arg(short = 'n', long, default_value = "1")]
     top: usize,
 
-    /// Show progress per restart
+    // === Utilities ===
+    #[arg(long)]
+    scramble: bool,
+
+    #[arg(long)]
+    group5: bool,
+
+    #[arg(long)]
+    ungroup: bool,
+
+    #[arg(long, aliases = &["upper"])]
+    uppercase: bool,
+
+    #[arg(long, aliases = &["lower"])]
+    lowercase: bool,
+
+    // === Common ===
+    #[arg(long)]
+    quadgrams: Option<PathBuf>,
+
     #[arg(short = 'v', long)]
     verbose: bool,
 
-    /// Show frequency analysis of ciphertext
     #[arg(long)]
     analyze: bool,
-
-    /// Dictionary weight (higher = trust dictionary more, default: 50)
-    #[arg(long, default_value = "50")]
-    dict_weight: f64,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    // Read ciphertext
-    let ciphertext = if let Some(path) = &cli.file {
+    // Read input text
+    let input = if let Some(path) = &cli.file {
         std::fs::read_to_string(path)?
     } else if let Some(text) = &cli.ciphertext {
         text.clone()
@@ -74,20 +92,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
         buf
     } else {
-        eprintln!("error: provide ciphertext as argument, via --file, or pipe to stdin");
+        eprintln!("error: provide input as argument, via --file, or pipe to stdin");
         std::process::exit(1);
     };
 
-    let ciphertext = ciphertext.trim();
-
-    if ciphertext.is_empty() {
-        eprintln!("error: empty ciphertext");
+    let input = input.trim();
+    if input.is_empty() {
+        eprintln!("error: empty input");
         std::process::exit(1);
     }
 
-    // Frequency analysis
+    // === Utility modes (run before any solving) ===
+    if cli.scramble {
+        println!("{}", vigenere::scramble(input));
+        return Ok(());
+    }
+    if cli.group5 {
+        println!("{}", vigenere::group5(input));
+        return Ok(());
+    }
+    if cli.ungroup {
+        println!("{}", vigenere::ungroup(input));
+        return Ok(());
+    }
+    if cli.uppercase {
+        println!("{}", input.to_uppercase());
+        return Ok(());
+    }
+    if cli.lowercase {
+        println!("{}", input.to_lowercase());
+        return Ok(());
+    }
+
+    // === Frequency analysis ===
     if cli.analyze {
-        print_analysis(ciphertext);
+        print_analysis(input);
     }
 
     // Load quadgram model
@@ -96,7 +135,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => ngram::NgramModel::from_str(include_str!("../data/english_quadgrams.txt"))?,
     };
 
-    // Load dictionary (optional)
+    // === Vigenere mode ===
+    if cli.vigenere {
+        let solver = vigenere::VigenereSolver::new(input, &scorer);
+        let solutions = solver.solve(cli.max_key_len, cli.key_len, cli.verbose);
+
+        if solutions.is_empty() {
+            eprintln!("error: no Vigenere solutions found");
+            std::process::exit(1);
+        }
+
+        let top_n = if cli.top > 0 { cli.top } else { 1 };
+        for (i, sol) in solutions.iter().enumerate().take(top_n) {
+            if top_n > 1 {
+                println!("--- Solution {} (score: {:.2}) ---", i, sol.score);
+                println!("Key (len={}): {}", sol.key_len, sol.key);
+            }
+            println!("{}", sol.plaintext);
+            if cli.verbose && i == 0 {
+                println!();
+                println!("Key: {} (length {})", sol.key, sol.key_len);
+                println!("Score: {:.2}", sol.score);
+            }
+        }
+        return Ok(());
+    }
+
+    // === Substitution mode ===
     let word_list_data;
     let dict = if let Some(path) = &cli.dict {
         if path.exists() {
@@ -107,21 +172,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     } else if cli.patristocrat {
-        // Patristocrat mode needs a dictionary - use embedded words
         word_list_data = dict::Dictionary::from_str(include_str!("../data/words.txt"));
         Some(&word_list_data)
     } else {
         None
     };
 
-    // Solve
-    let solver = solver::Solver::new(
-        ciphertext,
-        scorer,
-        dict,
-        cli.patristocrat,
-    );
-
+    let solver = solver::Solver::new(input, scorer, dict, cli.patristocrat);
     let top_n = if cli.top > 0 { cli.top } else { 1 };
     let solutions = solver.solve(
         cli.restarts,
@@ -131,7 +188,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.verbose,
     );
 
-    // Output
     if solutions.is_empty() {
         eprintln!("error: no solutions found");
         std::process::exit(1);
@@ -143,7 +199,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!();
             println!("Score: {:.2}", solutions[0].score);
             if dict.is_some() {
-                println!("Dict score: {:.2}%", solutions[0].dict_score * 100.0);
+                println!("Dict coverage: {:.1}%", solutions[0].dict_score * 100.0);
             }
             println!("Mapping (cipher→plain):");
             for i in 0..26 {
@@ -197,7 +253,7 @@ fn print_analysis(ciphertext: &str) {
     println!("Total letters: {}", total as usize);
     println!();
     println!("Cipher letter frequencies:");
-    println!("{:8}  {:6}  {:6}  {}", "Letter", "Count", "Freq%", "English");
+    println!("{:8}  {:6}  {:6}  {}", "Letter", "Count", "Freq%", "English rank");
     println!("{}", "-".repeat(45));
     for (count, ch) in &sorted {
         if *count == 0 {
@@ -212,8 +268,12 @@ fn print_analysis(ciphertext: &str) {
         println!("{:4}     {:6}  {:5.2}%  {}", ch, count, freq, eng);
     }
     println!();
-    println!("IC (Index of Coincidence): {:.4}", index_of_coincidence(&letters));
+    let ic = index_of_coincidence(&letters);
+    println!("IC (Index of Coincidence): {:.4}", ic);
     println!("Expected English IC: ~0.0667, Random IC: ~0.0385");
+    if ic < 0.050 {
+        println!("Hint: IC is low — could be Vigenere (try --vigenere)");
+    }
 }
 
 fn index_of_coincidence(letters: &[char]) -> f64 {
