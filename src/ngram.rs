@@ -83,12 +83,6 @@ impl NgramModel {
         }
         total
     }
-
-    /// Return the floor score (for reference)
-    #[allow(dead_code)]
-    pub fn floor_score(&self) -> f64 {
-        self.floor
-    }
 }
 
 /// Pack 4 uppercase ASCII bytes into a u32 (each byte uses 5 bits, total 20 bits)
