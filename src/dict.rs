@@ -120,14 +120,21 @@ impl Dictionary {
                             prev_pos: i,
                             prev_idx: entry_idx,
                         };
-                        dp[j].push(new_entry);
-                        dp[j].sort_by(|a, b| {
-                            b.score
-                                .partial_cmp(&a.score)
-                                .unwrap_or(std::cmp::Ordering::Less)
-                        });
-                        if dp[j].len() > n {
-                            dp[j].truncate(n);
+                        let insert_pos = dp[j]
+                            .binary_search_by(|entry| {
+                                entry
+                                    .score
+                                    .partial_cmp(&new_entry.score)
+                                    .unwrap_or(std::cmp::Ordering::Less)
+                                    .reverse()
+                            })
+                            .unwrap_or_else(|pos| pos);
+
+                        if dp[j].len() < n || insert_pos < dp[j].len() {
+                            dp[j].insert(insert_pos, new_entry);
+                            if dp[j].len() > n {
+                                dp[j].truncate(n);
+                            }
                         }
                     }
                 }
