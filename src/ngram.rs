@@ -18,7 +18,6 @@ pub fn cmp_f64(a: f64, b: f64) -> Ordering {
 pub struct NgramModel {
     scores: HashMap<u32, f64>,
     floor: f64,
-    _total: u64,
 }
 
 impl NgramModel {
@@ -70,11 +69,7 @@ impl NgramModel {
         // Floor: simulate seeing 0.01 of a count for any unseen quadgram
         let floor = (0.01 / total_f).log10();
 
-        Ok(Self {
-            scores,
-            floor,
-            _total: total,
-        })
+        Ok(Self { scores, floor })
     }
 
     /// Score a piece of text. Higher is more English-like.

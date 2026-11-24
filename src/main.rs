@@ -187,18 +187,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )))
     };
 
+    let top_n = cli.top.max(1);
+
     // === Vigenere mode ===
     if cli.vigenere {
         let solver = vigenere::VigenereSolver::new(input, &scorer);
-        let solutions = solver.solve(cli.max_key_len, cli.key_len, cli.verbose);
+        let solutions = solver.solve(cli.max_key_len, cli.key_len, top_n, cli.verbose);
 
         if solutions.is_empty() {
             eprintln!("error: no Vigenere solutions found");
             std::process::exit(1);
         }
 
-        let top_n = if cli.top > 0 { cli.top } else { 1 };
-        for (_i, sol) in solutions.iter().enumerate().take(top_n) {
+        for sol in &solutions {
             let (plaintext, alternatives) =
                 prepare_output_text(&sol.plaintext, output_dict.as_ref(), cli.uppercase);
             let key = if cli.uppercase {
@@ -214,24 +215,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // === Substitution mode ===
-    let word_list_data;
     let dict = if let Some(path) = &cli.dict {
         if path.exists() {
-            word_list_data = dict::Dictionary::from_file(&path.to_string_lossy())?;
-            Some(&word_list_data)
+            Some(dict::Dictionary::from_file(&path.to_string_lossy())?)
         } else {
             eprintln!("warning: dictionary file not found: {}", path.display());
             None
         }
     } else if cli.patristocrat {
-        word_list_data = dict::Dictionary::from_str(include_str!("../data/words.txt"));
-        Some(&word_list_data)
+        Some(dict::Dictionary::from_str(include_str!(
+            "../data/words.txt"
+        )))
     } else {
         None
     };
 
-    let solver = solver::Solver::new(input, scorer.clone(), dict, cli.patristocrat);
-    let top_n = if cli.top > 0 { cli.top } else { 1 };
+    let solver = solver::Solver::new(input, scorer, dict.as_ref(), cli.patristocrat);
     let solutions = solver.solve(
         cli.restarts,
         cli.iterations,
@@ -357,7 +356,7 @@ fn print_analysis(ciphertext: &str) {
         .enumerate()
         .map(|(i, &c)| (c, (b'A' + i as u8) as char))
         .collect();
-    sorted.sort_by(|a, b| b.0.cmp(&a.0));
+    sorted.sort_by_key(|a| std::cmp::Reverse(a.0));
 
     println!(
         "=== Frequency Analysis ===\nTotal letters: {}\n\nCipher letter frequencies:",

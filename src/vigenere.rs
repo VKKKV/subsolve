@@ -55,6 +55,7 @@ impl<'a> VigenereSolver<'a> {
         &self,
         max_key_len: usize,
         known_key_len: Option<usize>,
+        top_n: usize,
         verbose: bool,
     ) -> Vec<VigenereSolution> {
         let known_key_len = known_key_len.and_then(|k| {
@@ -95,7 +96,7 @@ impl<'a> VigenereSolver<'a> {
             // Collect candidates; print sorted table in verbose mode.
             solutions.push(VigenereSolution {
                 plaintext: self.reconstruct(&plain),
-                key: if verbose { key.clone() } else { key },
+                key,
                 key_len: kl,
                 shifts,
                 score,
@@ -108,14 +109,13 @@ impl<'a> VigenereSolver<'a> {
 
         solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
         dedup_by_plaintext(&mut solutions, |sol| &sol.plaintext);
-        solutions.truncate(5);
 
         if verbose {
             eprintln!();
             eprintln!("Key candidates (sorted by quadgram score):");
             eprintln!("  {:>3}  {:<14}  {:>8}", "len", "key", "score");
             eprintln!("  {:-^3}  {:-^14}  {:-^8}", "", "", "");
-            for (idx, sol) in solutions.iter().enumerate() {
+            for (idx, sol) in solutions.iter().take(top_n.max(5)).enumerate() {
                 eprintln!(
                     "  {:>3}  {:<14}  {:>8.2}{}",
                     sol.key_len,
@@ -126,6 +126,7 @@ impl<'a> VigenereSolver<'a> {
             }
         }
 
+        solutions.truncate(top_n);
         solutions
     }
 
@@ -184,9 +185,9 @@ impl<'a> VigenereSolver<'a> {
         };
         let mut factor_hits = vec![0; max + 1];
         for &dist in &repeats {
-            for factor in 2..=max.min(dist) {
+            for (factor, hits) in factor_hits.iter_mut().enumerate().take(dist + 1).skip(2) {
                 if dist % factor == 0 {
-                    factor_hits[factor] += 1;
+                    *hits += 1;
                 }
             }
         }
@@ -463,7 +464,7 @@ mod tests {
 
         let model = full_model();
         let solver = VigenereSolver::new(&cipher, &model);
-        let sols = solver.solve(10, Some(3), false);
+        let sols = solver.solve(10, Some(3), 5, false);
         assert!(!sols.is_empty());
         assert_eq!(sols[0].key_len, 3);
     }
@@ -484,7 +485,7 @@ mod tests {
 
         let model = full_model();
         let solver = VigenereSolver::new(&cipher, &model);
-        let sols = solver.solve(10, None, false);
+        let sols = solver.solve(10, None, 5, false);
         assert!(!sols.is_empty());
         assert_eq!(sols[0].key_len, 3);
         assert_eq!(sols[0].key, "DIO");
@@ -515,7 +516,7 @@ mod tests {
         );
         assert!(candidates.iter().all(|&len| (1..=20).contains(&len)));
 
-        let sols = solver.solve(20, None, false);
+        let sols = solver.solve(20, None, 5, false);
         assert_eq!(sols[0].key_len, 12);
         assert_eq!(sols[0].key, "CRYPTANALYSI");
     }
