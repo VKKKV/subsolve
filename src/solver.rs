@@ -5,6 +5,7 @@
 /// swaps pairs of letters, keeping changes that improve the score.
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::collections::HashSet;
 
 use crate::dict::Dictionary;
 use crate::ngram::{cmp_f64, NgramModel};
@@ -19,6 +20,12 @@ pub struct Solution {
     pub score: f64,
     pub quad_score: f64,
     pub dict_score: f64,
+}
+
+/// Keep the first solution for each plaintext in a score-sorted list.
+pub(crate) fn dedup_by_plaintext<T>(solutions: &mut Vec<T>, plaintext: impl Fn(&T) -> &str) {
+    let mut seen = HashSet::new();
+    solutions.retain(|solution| seen.insert(plaintext(solution).to_owned()));
 }
 
 pub struct Solver<'a> {
@@ -224,11 +231,10 @@ impl<'a> Solver<'a> {
                 dict_score: dict_s,
             });
 
-            // Keep sorted so verbose progress reports the current best.
+            // Bound the retained list without letting duplicates evict unique results.
             all_solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
-            if all_solutions.len() > top_n * 3 {
-                all_solutions.truncate(top_n * 3);
-            }
+            dedup_by_plaintext(&mut all_solutions, |sol| &sol.plaintext);
+            all_solutions.truncate(top_n.max(1));
 
             if verbose {
                 let preview: String = all_solutions[0]
@@ -247,8 +253,6 @@ impl<'a> Solver<'a> {
             }
         }
 
-        // Sort and return top N
-        all_solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
         all_solutions.truncate(top_n);
         all_solutions
     }
@@ -298,11 +302,20 @@ mod tests {
     }
 
     #[test]
+    fn test_dedup_by_plaintext_keeps_first() {
+        let mut ranked = vec![("FIRST", 5), ("SECOND", 4), ("FIRST", 3), ("THIRD", 2)];
+        dedup_by_plaintext(&mut ranked, |(plaintext, _)| plaintext);
+        assert_eq!(ranked, [("FIRST", 5), ("SECOND", 4), ("THIRD", 2)]);
+    }
+
+    #[test]
     fn test_solver_top_n() {
         let model = small_model();
         let solver = Solver::new("NTHETHER", model, None, false);
-        let sols = solver.solve(10, 200, "", 5, false);
-        assert_eq!(sols.len(), 5);
+        let clues = "N=N,T=T,H=H,E=E,R=R";
+        let sols = solver.solve(10, 200, clues, 5, false);
+        assert_eq!(sols.len(), 1);
+        assert_eq!(sols[0].plaintext, "NTHETHER");
     }
 
     #[test]

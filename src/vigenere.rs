@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use crate::ngram::{cmp_f64, NgramModel};
+use crate::solver::dedup_by_plaintext;
 
 const AZ: &[u8; 26] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const MAX_REFINE_ITERATIONS: usize = 3;
@@ -106,6 +107,7 @@ impl<'a> VigenereSolver<'a> {
         }
 
         solutions.sort_by(|a, b| cmp_f64(b.score, a.score));
+        dedup_by_plaintext(&mut solutions, |sol| &sol.plaintext);
         solutions.truncate(5);
 
         if verbose {
