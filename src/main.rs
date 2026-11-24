@@ -195,7 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let top_n = if cli.top > 0 { cli.top } else { 1 };
         for (_i, sol) in solutions.iter().enumerate().take(top_n) {
             let (plaintext, alternatives) =
-                prepare_output_text(&sol.plaintext, output_dict.as_ref(), &scorer, cli.uppercase);
+                prepare_output_text(&sol.plaintext, output_dict.as_ref(), cli.uppercase);
             let key = if cli.uppercase {
                 sol.key.clone()
             } else {
@@ -245,7 +245,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!();
         }
         let (plaintext, alternatives) =
-            prepare_output_text(&sol.plaintext, output_dict.as_ref(), &scorer, cli.uppercase);
+            prepare_output_text(&sol.plaintext, output_dict.as_ref(), cli.uppercase);
         println!("Score: {:.2} (quadgram)", sol.quad_score);
         print_solution_body(&plaintext, &alternatives, cli.verbose);
         if cli.verbose {
@@ -266,48 +266,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn segment_and_rank(
-    clean: &str,
-    dict: &dict::Dictionary,
-    scorer: &ngram::NgramModel,
-) -> Vec<(f64, String)> {
-    let segs = dict.segment_nbest(clean, 5).unwrap_or_default();
-    let mut scored: Vec<(f64, String)> = segs
+fn segment_and_rank(clean: &str, dict: &dict::Dictionary) -> Vec<String> {
+    dict.segment_nbest(clean, 5)
+        .unwrap_or_default()
         .into_iter()
-        .map(|words| {
-            let text = words.join(" ");
-            let qs = scorer.score(&text);
-            (qs, text)
-        })
-        .collect();
-    scored.sort_by(|a, b| ngram::cmp_f64(b.0, a.0));
-    scored.truncate(3);
-    scored
+        .take(3)
+        .map(|words| words.join(" "))
+        .collect()
 }
 
 fn prepare_output_text(
     plaintext: &str,
     dict: Option<&dict::Dictionary>,
-    scorer: &ngram::NgramModel,
     uppercase: bool,
-) -> (String, Vec<(f64, String)>) {
+) -> (String, Vec<String>) {
     let clean: String = plaintext
         .chars()
         .filter(|c| c.is_ascii_alphabetic())
         .collect();
-    let scored = dict
-        .map(|dict| segment_and_rank(&clean, dict, scorer))
+    let segments = dict
+        .map(|dict| segment_and_rank(&clean, dict))
         .unwrap_or_default();
 
-    let text = scored
-        .first()
-        .map(|(_, text)| text.as_str())
-        .unwrap_or(plaintext);
+    let text = segments.first().map(String::as_str).unwrap_or(plaintext);
     let text = apply_output_case(text, uppercase);
-    let alternatives = scored
+    let alternatives = segments
         .iter()
         .skip(1)
-        .map(|(score, text)| (*score, apply_output_case(text, uppercase)))
+        .map(|text| apply_output_case(text, uppercase))
         .collect();
 
     (text, alternatives)
@@ -321,20 +307,20 @@ fn apply_output_case(text: &str, uppercase: bool) -> String {
     }
 }
 
-fn print_solution_body(plaintext: &str, alternatives: &[(f64, String)], verbose: bool) {
+fn print_solution_body(plaintext: &str, alternatives: &[String], verbose: bool) {
     let sep = output_separator();
     println!("{sep}");
     println!("{}", word_wrap(plaintext, 72));
     println!("{sep}");
     let max_alt = if verbose { 120 } else { 80 };
-    for (si, (score, line)) in alternatives.iter().enumerate() {
+    for (si, line) in alternatives.iter().enumerate() {
         let short: String = line.chars().take(max_alt).collect();
         let suffix = if line.chars().count() > max_alt {
             "..."
         } else {
             ""
         };
-        println!("  alt {} (q: {:.2}): {}{}", si + 2, score, short, suffix);
+        println!("  alt {}: {}{}", si + 2, short, suffix);
     }
 }
 
@@ -432,6 +418,13 @@ fn word_wrap(text: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_segment_and_rank_prefers_dp_order() {
+        let dict = dict::Dictionary::from_str(include_str!("../data/words.txt"));
+        let segments = segment_and_rank("THEQUICKBROWNFOXJUMPSOVERTHELAZYDOG", &dict);
+        assert_eq!(segments[0], "the quick brown fox jumps over the lazy dog");
+    }
 
     #[test]
     fn test_ic_random_vs_english() {
