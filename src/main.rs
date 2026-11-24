@@ -27,7 +27,7 @@ struct Cli {
     vigenere: bool,
 
     /// Known key length for Vigenere (auto-detect if unset)
-    #[arg(long)]
+    #[arg(long, value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..))]
     key_len: Option<usize>,
 
     /// Max key length to try for Vigenere (default: 20)
@@ -342,7 +342,8 @@ fn print_analysis(ciphertext: &str) {
 
     let total = letters.len() as f64;
     if total == 0.0 {
-        return;
+        eprintln!("error: no ASCII letters to analyze");
+        std::process::exit(1);
     }
 
     let mut counts = [0usize; 26];
