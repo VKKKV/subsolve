@@ -175,50 +175,34 @@ impl<'a> VigenereSolver<'a> {
             return vec![1];
         }
 
-        // Method 1: Index of Coincidence
-        let mut ic_scores: Vec<(usize, f64)> = (2..=max)
-            .map(|kl| {
-                let ic = self.avg_ic(kl);
-                (kl, (ic - 0.0667).abs()) // lower = better
-            })
-            .collect();
-        ic_scores.retain(|(_, ic)| ic.is_finite());
-        ic_scores.sort_by(|a, b| cmp_f64(a.1, b.1));
-
-        // Method 2: Kasiski examination (for longer texts)
-        let mut kasiski_scores: HashMap<usize, usize> = HashMap::new();
-        if n >= 20 {
-            let repeats = self.kasiski(3);
-            for &dist in &repeats {
-                // Factor the distance, count small factors
-                for f in 2..=max.min(10) {
-                    if dist % f == 0 {
-                        *kasiski_scores.entry(f).or_insert(0) += 1;
-                    }
+        let repeats = if n >= 20 && max > 1 {
+            self.kasiski(3)
+        } else {
+            Vec::new()
+        };
+        let mut factor_hits = vec![0; max + 1];
+        for &dist in &repeats {
+            for factor in 2..=max.min(dist) {
+                if dist % factor == 0 {
+                    factor_hits[factor] += 1;
                 }
             }
         }
 
-        // Merge: prefer IC results, boost with Kasiski
-        let mut merged: Vec<(usize, f64)> = ic_scores
-            .iter()
-            .map(|&(kl, ic_dist)| {
-                let kas = kasiski_scores.get(&kl).copied().unwrap_or(0) as f64;
-                // Combined score: IC distance (lower better) - Kasiski boost
-                (kl, ic_dist - kas * 0.01)
+        // Bound the Kasiski boost to 0.01 regardless of ciphertext length.
+        let boost_per_hit = 0.01 / repeats.len().max(1) as f64;
+        let mut ranked: Vec<(usize, f64)> = (2..=max)
+            .map(|len| {
+                let ic_distance = (self.avg_ic(len) - 0.0667).abs();
+                (len, ic_distance - factor_hits[len] as f64 * boost_per_hit)
             })
             .collect();
-        merged.sort_by(|a, b| cmp_f64(a.1, b.1));
+        ranked.sort_by(|a, b| cmp_f64(a.1, b.1));
 
-        // Always try key length 1 (Caesar/substitution) at the end
-        let mut result: Vec<usize> = merged.iter().map(|&(kl, _)| kl).collect();
-        if !result.contains(&1) {
-            result.push(1);
-        }
-
-        // Remove duplicates and return top candidates
-        result.truncate(8);
-        result
+        // Reserve one of the eight candidate slots for Caesar.
+        let mut candidates: Vec<usize> = ranked.into_iter().take(7).map(|(len, _)| len).collect();
+        candidates.push(1);
+        candidates
     }
 
     /// Average Index of Coincidence for a given key length
@@ -502,6 +486,36 @@ mod tests {
         assert!(!sols.is_empty());
         assert_eq!(sols[0].key_len, 3);
         assert_eq!(sols[0].key, "DIO");
+    }
+
+    #[test]
+    fn test_vigenere_auto_detect_long_key() {
+        let key = b"CRYPTANALYSI";
+        let cipher: String = include_str!("../LICENSE")
+            .bytes()
+            .filter(u8::is_ascii_alphabetic)
+            .take(1200)
+            .enumerate()
+            .map(|(i, c)| {
+                let letter = c.to_ascii_uppercase() - b'A';
+                let shift = key[i % key.len()] - b'A';
+                (b'A' + (letter + shift) % 26) as char
+            })
+            .collect();
+        assert_eq!(cipher.len(), 1200);
+
+        let model = full_model();
+        let solver = VigenereSolver::new(&cipher, &model);
+        let candidates = solver.find_key_lengths(20);
+        assert!(
+            candidates.contains(&12) && candidates.contains(&1),
+            "{candidates:?}"
+        );
+        assert!(candidates.iter().all(|&len| (1..=20).contains(&len)));
+
+        let sols = solver.solve(20, None, false);
+        assert_eq!(sols[0].key_len, 12);
+        assert_eq!(sols[0].key, "CRYPTANALYSI");
     }
 
     #[test]
