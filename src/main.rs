@@ -111,7 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    if group_consumed_input.is_some() && cli.ciphertext.is_some() {
+    let stdin_redirected = !std::io::stdin().is_terminal();
+    if group_consumed_input.is_some()
+        && (cli.ciphertext.is_some() || cli.file.is_some() || stdin_redirected)
+    {
         eprintln!("error: ambiguous input: quote the ciphertext or use --group 5");
         std::process::exit(1);
     }
@@ -123,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         text.clone()
     } else if let Some(text) = group_consumed_input {
         text
-    } else if !std::io::stdin().is_terminal() {
+    } else if stdin_redirected {
         let mut buf = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
         buf
