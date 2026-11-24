@@ -42,15 +42,17 @@ impl NgramModel {
             if parts.len() != 2 {
                 continue;
             }
-            let quad_str = parts[0].trim();
-            if quad_str.len() != N {
+            let quad = parts[0].trim().as_bytes();
+            if quad.len() != N {
                 continue;
             }
+            let Some(key) = bytes_to_key(quad) else {
+                continue;
+            };
             let count: u64 = match parts[1].trim().parse() {
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            let key = quad_to_key(quad_str);
             ngrams.insert(key, count);
             total += count;
         }
@@ -95,19 +97,7 @@ impl NgramModel {
     }
 }
 
-/// Pack 4 uppercase ASCII bytes into a u32 (each byte uses 5 bits, total 20 bits)
-/// 'A' = 0, 'B' = 1, ..., 'Z' = 25
-#[inline]
-fn quad_to_key(s: &str) -> u32 {
-    let b = s.as_bytes();
-    debug_assert!(b.len() == 4);
-    ((b[0] - b'A') as u32) << 15
-        | ((b[1] - b'A') as u32) << 10
-        | ((b[2] - b'A') as u32) << 5
-        | ((b[3] - b'A') as u32)
-}
-
-/// Same but from a byte slice (for scoring hot path)
+/// Pack four ASCII letters into a u32, ignoring case. A = 0, ..., Z = 25.
 #[inline]
 fn bytes_to_key(b: &[u8]) -> Option<u32> {
     debug_assert!(b.len() >= 4);
@@ -133,13 +123,26 @@ mod tests {
 
     #[test]
     fn test_key_encoding() {
-        assert_eq!(quad_to_key("AAAA"), 0);
-        assert_eq!(quad_to_key("ZZZZ"), 0b11001_11001_11001_11001);
-        assert_eq!(quad_to_key("THEY"), quad_to_key("THEY"));
-        assert_eq!(bytes_to_key(b"THEY"), Some(quad_to_key("THEY")));
-        assert_eq!(bytes_to_key(b"they"), Some(quad_to_key("THEY")));
+        assert_eq!(bytes_to_key(b"AAAA"), Some(0));
+        assert_eq!(bytes_to_key(b"ZZZZ"), Some(0b11001_11001_11001_11001));
+        assert_eq!(bytes_to_key(b"they"), bytes_to_key(b"THEY"));
         assert_eq!(bytes_to_key(b"TH Y"), None);
-        assert_ne!(quad_to_key("AAAA"), quad_to_key("AAAB"));
+        assert_ne!(bytes_to_key(b"AAAA"), bytes_to_key(b"AAAB"));
+    }
+
+    #[test]
+    fn test_quadgram_loading_skips_nonletters() {
+        assert!(NgramModel::from_str("1234 5\n").is_err());
+        let model = NgramModel::from_str("1234 5\nÄBCD 10\nA!CD 8\nABCD 100\n").unwrap();
+        assert_eq!(model.scores.len(), 1);
+        assert_eq!(model.score("ABCD"), 0.0);
+    }
+
+    #[test]
+    fn test_quadgram_loading_matches_lowercase() {
+        let model = NgramModel::from_str("tion 100\nabcd 50\n").unwrap();
+        assert!(model.score("TION") > model.score("ABCD"));
+        assert!(model.score("ABCD") > model.score("ZZZZ"));
     }
 
     #[test]
