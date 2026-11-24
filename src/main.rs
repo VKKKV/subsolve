@@ -111,6 +111,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if group_consumed_input.is_some() && cli.ciphertext.is_some() {
+        eprintln!("error: ambiguous input: quote the ciphertext or use --group 5");
+        std::process::exit(1);
+    }
+
     // Read input text
     let input = if let Some(path) = &cli.file {
         std::fs::read_to_string(path)?
