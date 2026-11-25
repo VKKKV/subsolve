@@ -3,7 +3,7 @@ mod ngram;
 mod solver;
 mod vigenere;
 
-use clap::{ArgGroup, Parser};
+use clap::Parser;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -14,20 +14,6 @@ use std::path::PathBuf;
 /// All modes work offline with embedded language models.
 #[derive(Parser)]
 #[command(name = "subsolve", version, about)]
-#[command(group(
-    ArgGroup::new("utility")
-        .args(["scramble", "group", "ungroup", "uppercase", "lowercase"])
-        .multiple(true)
-        .conflicts_with("solve")
-))]
-#[command(group(
-    ArgGroup::new("solve")
-        .args([
-            "vigenere", "patristocrat", "analyze", "clues", "dict", "quadgrams", "no_segment",
-            "key_len", "max_key_len", "restarts", "iterations", "top", "verbose",
-        ])
-        .multiple(true)
-))]
 struct Cli {
     /// Ciphertext to solve (omit to read from stdin)
     ciphertext: Option<String>,
@@ -90,10 +76,24 @@ struct Cli {
     #[arg(long)]
     ungroup: bool,
 
-    #[arg(long, aliases = &["upper"])]
+    #[arg(
+        long,
+        aliases = &["upper"],
+        conflicts_with_all = [
+            "vigenere", "patristocrat", "analyze", "clues", "dict", "quadgrams", "no_segment",
+            "key_len", "max_key_len", "restarts", "iterations", "top", "verbose",
+        ]
+    )]
     uppercase: bool,
 
-    #[arg(long, aliases = &["lower"])]
+    #[arg(
+        long,
+        aliases = &["lower"],
+        conflicts_with_all = [
+            "vigenere", "patristocrat", "analyze", "clues", "dict", "quadgrams", "no_segment",
+            "key_len", "max_key_len", "restarts", "iterations", "top", "verbose",
+        ]
+    )]
     lowercase: bool,
 
     // === Common ===
