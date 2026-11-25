@@ -3,7 +3,7 @@ mod ngram;
 mod solver;
 mod vigenere;
 
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 use std::io::IsTerminal;
 use std::path::PathBuf;
 
@@ -14,6 +14,20 @@ use std::path::PathBuf;
 /// All modes work offline with embedded language models.
 #[derive(Parser)]
 #[command(name = "subsolve", version, about)]
+#[command(group(
+    ArgGroup::new("utility")
+        .args(["scramble", "group", "ungroup", "uppercase", "lowercase"])
+        .multiple(true)
+        .conflicts_with("solve")
+))]
+#[command(group(
+    ArgGroup::new("solve")
+        .args([
+            "vigenere", "patristocrat", "analyze", "clues", "dict", "quadgrams", "no_segment",
+            "key_len", "max_key_len", "restarts", "iterations", "top", "verbose",
+        ])
+        .multiple(true)
+))]
 struct Cli {
     /// Ciphertext to solve (omit to read from stdin)
     ciphertext: Option<String>,
@@ -204,12 +218,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         for sol in &solutions {
             let (plaintext, alternatives) =
-                prepare_output_text(&sol.plaintext, output_dict.as_ref(), cli.uppercase);
-            let key = if cli.uppercase {
-                sol.key.clone()
-            } else {
-                sol.key.to_lowercase()
-            };
+                prepare_output_text(&sol.plaintext, output_dict.as_ref());
+            let key = sol.key.to_lowercase();
 
             println!("Key: {} | Score: {:.2} (quadgram)", key, sol.score);
             print_solution_body(&plaintext, &alternatives, cli.verbose);
@@ -251,8 +261,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if i > 0 {
             println!();
         }
-        let (plaintext, alternatives) =
-            prepare_output_text(&sol.plaintext, output_dict.as_ref(), cli.uppercase);
+        let (plaintext, alternatives) = prepare_output_text(&sol.plaintext, output_dict.as_ref());
         println!("Score: {:.2} (quadgram)", sol.quad_score);
         print_solution_body(&plaintext, &alternatives, cli.verbose);
         if cli.verbose {
@@ -282,11 +291,7 @@ fn segment_and_rank(clean: &str, dict: &dict::Dictionary) -> Vec<String> {
         .collect()
 }
 
-fn prepare_output_text(
-    plaintext: &str,
-    dict: Option<&dict::Dictionary>,
-    uppercase: bool,
-) -> (String, Vec<String>) {
+fn prepare_output_text(plaintext: &str, dict: Option<&dict::Dictionary>) -> (String, Vec<String>) {
     let clean: String = plaintext
         .chars()
         .filter(|c| c.is_ascii_alphabetic())
@@ -296,22 +301,7 @@ fn prepare_output_text(
         .unwrap_or_default();
 
     let text = segments.first().map(String::as_str).unwrap_or(plaintext);
-    let text = apply_output_case(text, uppercase);
-    let alternatives = segments
-        .iter()
-        .skip(1)
-        .map(|text| apply_output_case(text, uppercase))
-        .collect();
-
-    (text, alternatives)
-}
-
-fn apply_output_case(text: &str, uppercase: bool) -> String {
-    if uppercase {
-        text.to_uppercase()
-    } else {
-        text.to_lowercase()
-    }
+    (text.to_lowercase(), segments.into_iter().skip(1).collect())
 }
 
 fn print_solution_body(plaintext: &str, alternatives: &[String], verbose: bool) {
