@@ -18,8 +18,6 @@ pub struct Solution {
     pub plaintext: String,
     pub mapping: [u8; 26],
     pub score: f64,
-    pub quad_score: f64,
-    pub dict_score: f64,
 }
 
 /// Keep the first solution for each plaintext in a score-sorted list.
@@ -86,27 +84,13 @@ impl<'a> Solver<'a> {
             })
             .collect();
 
-        if self.patristocrat {
-            // Strip all non-alpha, then try to segment
+        if let (true, Some(dict)) = (self.patristocrat, self.dict) {
             let clean: String = plain.chars().filter(|c| c.is_ascii_alphabetic()).collect();
-            if let Some(dict) = self.dict {
-                if let Some(segmented) = dict.segment(&clean) {
-                    return segmented.join::<&str>(" ");
-                }
+            if let Some(segmented) = dict.segment(&clean) {
+                return segmented.join(" ");
             }
         }
         plain
-    }
-
-    /// Combined score: quadgram score + optional dictionary bonus
-    fn combined_score(&self, text: &str, quad_score: f64) -> f64 {
-        match self.dict {
-            Some(dict) => {
-                let ds = dict.score_text(text);
-                quad_score + ds * 50.0 // dictionary bonus weight
-            }
-            None => quad_score,
-        }
     }
 
     fn build_key_from_clues(clues: &str) -> ([u8; 26], [bool; 26]) {
@@ -188,8 +172,7 @@ impl<'a> Solver<'a> {
 
             let decrypted = self.decrypt(&key);
             let dec_str = String::from_utf8(decrypted).unwrap();
-            let quad_score = self.scorer.score(&dec_str);
-            let mut current_score = self.combined_score(&dec_str, quad_score);
+            let mut current_score = self.scorer.score(&dec_str);
 
             for _step in 0..iterations {
                 let mut candidates: Vec<usize> = (0..26).filter(|&i| !locked[i]).collect();
@@ -204,8 +187,7 @@ impl<'a> Solver<'a> {
                 key.swap(a, b);
                 let child_dec = self.decrypt(&key);
                 let child_str = String::from_utf8(child_dec).unwrap();
-                let child_quad = self.scorer.score(&child_str);
-                let child_score = self.combined_score(&child_str, child_quad);
+                let child_score = self.scorer.score(&child_str);
 
                 if child_score > current_score {
                     current_score = child_score;
@@ -214,21 +196,10 @@ impl<'a> Solver<'a> {
                 }
             }
 
-            let dec_clean = String::from_utf8(self.decrypt(&key)).unwrap();
-            let plaintext = self.decrypt_preserve(&key);
-            let final_quad = self.scorer.score(&dec_clean);
-            let final_score = self.combined_score(&dec_clean, final_quad);
-            let dict_s = self
-                .dict
-                .map(|d: &Dictionary| d.score_text(&dec_clean))
-                .unwrap_or(0.0);
-
             all_solutions.push(Solution {
-                plaintext,
+                plaintext: self.decrypt_preserve(&key),
                 mapping: key,
-                score: final_score,
-                quad_score: final_quad,
-                dict_score: dict_s,
+                score: current_score,
             });
 
             // Bound the retained list without letting duplicates evict unique results.
@@ -265,10 +236,6 @@ mod tests {
 
     fn small_model() -> NgramModel {
         NgramModel::from_str("TION 1000\nNTHE 2000\nTHER 500\nTHAT 300\nTHEY 200\n").unwrap()
-    }
-
-    fn test_dict() -> Dictionary {
-        Dictionary::from_str("the\nquick\nbrown\nfox\njumps\nover\nlazy\ndog\nhello\nworld\n")
     }
 
     #[test]
@@ -321,9 +288,15 @@ mod tests {
     #[test]
     fn test_solver_with_dict() {
         let model = small_model();
-        let dict = test_dict();
-        let solver = Solver::new("NTHETHER", model, Some(&dict), false);
-        let sols = solver.solve(5, 100, "", 3, false);
-        assert!(!sols.is_empty());
+        let expected_score = model.score("THECODE");
+        let dict = Dictionary::from_str("the\ncode\n");
+        let clues = "T=T,H=H,E=E,C=C,O=O,D=D";
+
+        for (patristocrat, expected) in [(false, "THECODE"), (true, "the code")] {
+            let solver = Solver::new("THECODE", model.clone(), Some(&dict), patristocrat);
+            let solutions = solver.solve(1, 100, clues, 1, false);
+            assert_eq!(solutions[0].plaintext, expected);
+            assert_eq!(solutions[0].score, expected_score);
+        }
     }
 }

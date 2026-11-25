@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 /// subsolve — offline cryptogram solver
 ///
-/// Supports substitution ciphers (quadgram HC + dictionary) and
+/// Supports substitution ciphers (quadgram hill climbing) and
 /// Vigenere ciphers (Kasiski/IC + chi-squared + quadgram refinement).
 /// All modes work offline with embedded language models.
 #[derive(Parser)]
@@ -62,6 +62,7 @@ struct Cli {
     #[arg(long)]
     clues: Option<String>,
 
+    /// Add words from a custom word list to output segmentation
     #[arg(long)]
     dict: Option<PathBuf>,
 
@@ -196,12 +197,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => ngram::NgramModel::from_str(include_str!("../data/english_quadgrams.txt"))?,
     };
 
+    let solver_uses_dict = !cli.vigenere && (cli.dict.is_some() || cli.patristocrat);
+    let merged = if !cli.no_segment || solver_uses_dict || cli.dict.is_some() {
+        let mut merged = dict::Dictionary::from_str(include_str!("../data/words.txt"));
+        if let Some(path) = &cli.dict {
+            match merged.merge_file(path) {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    eprintln!("warning: dictionary file not found: {}", path.display());
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Some(merged)
+    } else {
+        None
+    };
     let output_dict = if cli.no_segment {
         None
     } else {
-        Some(dict::Dictionary::from_str(include_str!(
-            "../data/words.txt"
-        )))
+        merged.as_ref()
     };
 
     let top_n = cli.top.max(1);
@@ -217,8 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         for sol in &solutions {
-            let (plaintext, alternatives) =
-                prepare_output_text(&sol.plaintext, output_dict.as_ref());
+            let (plaintext, alternatives) = prepare_output_text(&sol.plaintext, output_dict);
             let key = sol.key.to_lowercase();
 
             println!("Key: {} | Score: {:.2} (quadgram)", key, sol.score);
@@ -228,22 +242,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // === Substitution mode ===
-    let dict = if let Some(path) = &cli.dict {
-        if path.exists() {
-            Some(dict::Dictionary::from_file(&path.to_string_lossy())?)
-        } else {
-            eprintln!("warning: dictionary file not found: {}", path.display());
-            None
-        }
-    } else if cli.patristocrat {
-        Some(dict::Dictionary::from_str(include_str!(
-            "../data/words.txt"
-        )))
+    let solver_dict = if solver_uses_dict {
+        merged.as_ref()
     } else {
         None
     };
-
-    let solver = solver::Solver::new(input, scorer, dict.as_ref(), cli.patristocrat);
+    let solver = solver::Solver::new(input, scorer, solver_dict, cli.patristocrat);
     let solutions = solver.solve(
         cli.restarts,
         cli.iterations,
@@ -261,13 +265,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if i > 0 {
             println!();
         }
-        let (plaintext, alternatives) = prepare_output_text(&sol.plaintext, output_dict.as_ref());
-        println!("Score: {:.2} (quadgram)", sol.quad_score);
+        let (plaintext, alternatives) = prepare_output_text(&sol.plaintext, output_dict);
+        println!("Score: {:.2} (quadgram)", sol.score);
         print_solution_body(&plaintext, &alternatives, cli.verbose);
         if cli.verbose {
-            if dict.is_some() {
-                println!("Dict coverage: {:.1}%", sol.dict_score * 100.0);
-            }
             println!("Mapping (cipher→plain):");
             for i in 0..26 {
                 let c = (b'A' + i as u8) as char;

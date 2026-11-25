@@ -3,8 +3,20 @@
 /// Supports:
 /// - Fast word lookup via HashMap
 /// - Word boundary insertion (Viterbi DP) for patristocrat mode
-/// - Word frequency scoring for dictionary mode
 use std::collections::HashMap;
+use std::io;
+use std::path::Path;
+
+// Cost near rank 1,000 in the embedded list: favor a custom word over
+// most splits into rarer words while keeping common built-in words cheap.
+const CUSTOM_WORD_COST: f64 = 9.0;
+
+fn words_from_lines(data: &str) -> impl Iterator<Item = String> + '_ {
+    data.lines()
+        .map(str::trim)
+        .filter(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_alphabetic()))
+        .map(str::to_ascii_lowercase)
+}
 
 pub struct Dictionary {
     words: HashMap<String, f64>,
@@ -12,34 +24,10 @@ pub struct Dictionary {
 }
 
 impl Dictionary {
-    /// Load from a newline-separated word list file
-    pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let data = std::fs::read_to_string(path)?;
-        Ok(Self::from_str(&data))
-    }
-
-    /// Load from a string (embedded or otherwise)
+    /// Load a frequency-ordered word list.
     pub fn from_str(data: &str) -> Self {
-        let mut word_list = Vec::new();
-        let mut max_word_len = 0;
-
-        for line in data.lines() {
-            let word = line.trim().to_ascii_lowercase();
-            // Remove \r from Windows-style line endings
-            let word = word.trim_end_matches('\r').to_string();
-            if word.is_empty() {
-                continue;
-            }
-            // Keep the frequency-ordered source intact; one-letter words still
-            // get real costs when present, with fallback covering unknowns.
-            if word.chars().all(|c| c.is_ascii_alphabetic()) {
-                let len = word.len();
-                if len > max_word_len {
-                    max_word_len = len;
-                }
-                word_list.push(word);
-            }
-        }
+        let word_list: Vec<_> = words_from_lines(data).collect();
+        let max_word_len = word_list.iter().map(String::len).max().unwrap_or(0);
 
         let total = word_list.len() as f64;
         let log_total = total.ln();
@@ -52,6 +40,20 @@ impl Dictionary {
         Self {
             words,
             max_word_len,
+        }
+    }
+
+    /// Add words from an unranked, newline-separated file.
+    pub fn merge_file(&mut self, path: &Path) -> io::Result<()> {
+        self.merge_custom(&std::fs::read_to_string(path)?);
+        Ok(())
+    }
+
+    fn merge_custom(&mut self, data: &str) {
+        for word in words_from_lines(data) {
+            self.max_word_len = self.max_word_len.max(word.len());
+            let cost = self.words.entry(word).or_insert(CUSTOM_WORD_COST);
+            *cost = cost.min(CUSTOM_WORD_COST);
         }
     }
 
@@ -178,83 +180,6 @@ impl Dictionary {
 
         Some(segmentations)
     }
-
-    /// Score a text based on what fraction of words are in the dictionary.
-    /// Returns a value in [0, 1] where 1.0 = all words known.
-    /// For patristocrat text (no spaces), uses Viterbi segmentation first.
-    pub fn score_text(&self, text: &str) -> f64 {
-        let has_spaces = text.contains(' ');
-        let words: Vec<&str> = if has_spaces {
-            text.split_whitespace()
-                .filter(|w| w.chars().any(|c| c.is_ascii_alphabetic()))
-                .collect()
-        } else {
-            // Patristocrat mode: words aren't separated yet
-            // Just check bigrams/trigrams instead
-            return self.score_ngram(text);
-        };
-
-        if words.is_empty() {
-            return 0.0;
-        }
-
-        let known = words
-            .iter()
-            .filter(|w| {
-                let clean: String = w.chars().filter(|c| c.is_ascii_alphabetic()).collect();
-                !clean.is_empty() && self.contains(&clean.to_ascii_lowercase())
-            })
-            .count();
-
-        known as f64 / words.len() as f64
-    }
-
-    /// Score a string of letters by checking what fraction of n-grams
-    /// are valid dictionary substrings. Used for patristocrat scoring.
-    fn score_ngram(&self, text: &str) -> f64 {
-        let text = text.to_ascii_lowercase();
-        let bytes = text.as_bytes();
-        if bytes.len() < 2 {
-            return 0.0;
-        }
-
-        const SAMPLE_LIMIT: usize = 5000;
-
-        // Check what fraction of sampled n-grams are dictionary words.
-        let mut total = 0;
-        let mut valid = 0;
-        let max_len = self.max_word_len.min(bytes.len());
-        let total_possible: usize = (0..bytes.len())
-            .map(|i| (i + max_len).min(bytes.len()).saturating_sub(i + 1))
-            .sum();
-        let step = if total_possible <= SAMPLE_LIMIT {
-            1
-        } else {
-            total_possible / SAMPLE_LIMIT
-        };
-
-        for i in (0..bytes.len()).step_by(step.max(1)) {
-            for j in (i + 2)..=(i + max_len).min(bytes.len()) {
-                total += 1;
-                let candidate = &text[i..j];
-                if self.contains(candidate) {
-                    valid += 1;
-                }
-                if total >= SAMPLE_LIMIT {
-                    break;
-                }
-            }
-            if total >= SAMPLE_LIMIT {
-                break;
-            }
-        }
-
-        if total == 0 {
-            0.0
-        } else {
-            valid as f64 / total as f64
-        }
-    }
 }
 
 #[cfg(test)]
@@ -325,12 +250,20 @@ ha
     }
 
     #[test]
-    fn test_score_text() {
-        let dict = test_dict();
-        let score = dict.score_text("the quick brown fox");
-        assert!((score - 1.0).abs() < 0.01);
+    fn test_merge_custom_words_for_segmentation() {
+        let mut dict = Dictionary::from_str("the\ncode\nth\ne\nblorp\ntastic\n");
+        let the_cost = dict.words["the"];
+        // Use the real word list for costs comparable to the custom-word constant.
+        let mut full_dict = Dictionary::from_str(include_str!("../data/words.txt"));
+        full_dict.merge_custom("Blorptastic\ncode\n");
+        let results = full_dict.segment_nbest("theblorptasticcode", 3).unwrap();
+        assert_eq!(results[0], ["the", "blorptastic", "code"]);
 
-        let score2 = dict.score_text("xyzzz qwerty");
-        assert!(score2 < 1.0);
+        dict.merge_custom("Blorptastic\nthe\ninvalid word\n");
+        assert_eq!(dict.words["the"], the_cost);
+        assert_eq!(dict.words["blorptastic"], CUSTOM_WORD_COST);
+        assert_eq!(dict.max_word_len, "blorptastic".len());
+        assert_eq!(dict.segment("the").unwrap(), ["the"]);
+        assert!(!dict.contains("invalid word"));
     }
 }
