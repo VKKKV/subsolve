@@ -21,14 +21,14 @@ Single binary, zero runtime dependencies. Embedded language models (~4.2 MB).
 
 - `--scramble` — random substitution (generate ciphertext)
 - `--group [N]` / `--group5` / `--ungroup` — group into blocks of N (default 5) / ungroup
-- `--upper` / `--lower` — case conversion
+- `--upper` / `--lower` — case conversion (text utilities; cannot be combined with solver options)
 - `--no-segment` — disable automatic word segmentation
 
 **Output features:**
 
 - Auto-lowercase with word segmentation and word-wrap
 - N-best segmentation alternatives
-- Verbose mode (`-v`): sorted key-candidates table with `← best` marker
+- Verbose mode (`-v`): Vigenere prints a sorted key-candidate table with `← best`; substitution prints per-run progress and the key mapping
 
 ## Install
 
@@ -45,10 +45,12 @@ Or install it to `~/.cargo/bin` with `cargo install --path .`.
 
 ## Usage
 
+All examples use the same public-domain passage, encrypted three ways.
+
 ### Solve a substitution cipher
 
 ```bash
-subsolve "STLN SOENWTU OTI IYWBSOBRB T AEUB TUK DGIN KEINEUCNEYU QBNSBBU LYJEUM QF TLLYSTUCB TUK LYJEUM SENO ZBRIYUTL LYJB NOEI KEINEUCNEYU TZZLEBI NY QYYVI TI SBLL TI NY WBU TUK SYWBU TUK EU NOB CTIB YA NOB UYN JBRF UGWBRYGI TGNOYRI SOY TRB NOB YQDBCNI YA NOB ZBRIYUTL TAABCNEYU EN QREUMI T CGREYGI CYUIBHGBUCB SENO EN NOBRB EI WGCO WYRB KEAABRBUCB TI NY NOBER QBIN SYRV NOTU EU NOB CTIB YA NOYIB YNOBRI SOY TRB LYJBK QF TLLYSTUCB QF CYUJBUNEYU TUK QBCTGIB EN EI ABLN NY QB NOB REMON TUK ZRYZBR NOEUM NY LYJB NOBW TUK EU NOB IBCN ATERLF LTRMB TUK FBN"
+subsolve -f examples/substitution.txt
 ```
 
 Default output is lowercase and word-segmented, with alternatives. The solver wraps the plaintext at 72 columns. The first three plaintext lines are shown here.
@@ -64,47 +66,53 @@ books as well as to men and women and in the case of the not very
 ### Solve from file / stdin
 
 ```bash
-subsolve -f ciphertext.txt
-cat ciphertext.txt | subsolve
+subsolve -f examples/substitution.txt
+cat examples/substitution.txt | subsolve
 ```
 
 ### Frequency analysis (detect cipher type)
 
 ```bash
-subsolve --analyze "WKH TXLFN EURZQ IRA"
+subsolve --analyze -f examples/vigenere.txt
 ```
 
-Shows letter frequencies, Index of Coincidence (IC), and a hint if Vigenere is suspected.
+Shows letter frequencies, Index of Coincidence (IC), and a hint if Vigenere is suspected. The example above is the Vigenere ciphertext, so its low IC triggers the hint.
 
 ### Vigenere solver
 
 ```bash
-subsolve --vigenere "JGRZQ OQHCV JGGZQ"
-subsolve --vigenere --key-len 5 "JGRZQ OQHCV JGGZQ"    # known key length
-subsolve --vigenere -v "JGRZQ OQHCV JGGZQ"               # verbose: see all candidates
+subsolve --vigenere -f examples/vigenere.txt
+subsolve --vigenere --key-len 5 -f examples/vigenere.txt   # known key length
+subsolve --vigenere -v -f examples/vigenere.txt            # verbose: see all candidates
+```
+
+The example ciphertext uses the key `LEMON`; auto-detection recovers it:
+
+```text
+Key: lemon | Score: -1751.81 (quadgram)
 ```
 
 ### Patristocrat (no word boundaries)
 
 ```bash
-subsolve --patristocrat "WKHQWKHTXLFNEURZQIRAMXPSVRYHUWKHODCBGRJ"
+subsolve --patristocrat -f examples/patristocrat.txt
 ```
 
 ### Custom word list for segmentation
 
 ```bash
-subsolve --dict /usr/share/dict/words -f ciphertext.txt
+subsolve --dict examples/wordlist.txt -f examples/substitution.txt
 ```
 
-`--dict` adds custom words to the built-in list used for output segmentation.
+`--dict` merges a custom word list (one word per line) into the built-in list used for output segmentation.
 
 ### Clues (partial known mapping)
 
 ```bash
-subsolve --clues "E=T,G=R" -f ciphertext.txt
+subsolve --clues "E=T,G=R" -f examples/substitution.txt
 ```
 
-Separators: `=`, `->`, `:`. Multiple clues: comma or semicolon.
+Separators: `=`, `->`, `:`. Multiple clues: comma or semicolon. The mapping above is a syntax example; use clues you actually know.
 
 ## Algorithm
 
